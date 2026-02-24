@@ -1,0 +1,1 @@
+"""VERA backend app package."""

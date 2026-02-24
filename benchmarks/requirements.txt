@@ -1,0 +1,4 @@
+llama-cpp-python
+sentence-transformers
+faster-whisper
+ctranslate2
