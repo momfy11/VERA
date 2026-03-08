@@ -70,9 +70,9 @@ npm run dev
 
 ## Database Notes
 
-The schema is COPIED from SQL file via `psql` CLI. If you need to update the schema later, edit `backend/app/db/migrations/0001_init.sql` and re-run it.
-
-For proper migrations later, we can integrate Alembic or a migration runner.
+- The SQL file `backend/app/db/migrations/0001_init.sql` is the initial schema reference.
+- `backend/init_db.py` creates the database (if missing) and creates tables from models.
+- For proper migrations later, we can integrate Alembic or a migration runner.
 
 ---
 
