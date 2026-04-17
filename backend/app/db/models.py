@@ -119,6 +119,17 @@ class AuditLog(Base):
     payload_json: Mapped[dict] = mapped_column(JSONB, default=dict)
 
 
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()"))
+    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
+    session_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("sessions.id"), nullable=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class MetricsRollup(Base):
     __tablename__ = "metrics_rollup"
 

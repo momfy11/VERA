@@ -1,20 +1,22 @@
-import { useEffect, useState } from "react";
-import { ChatPanel } from "./components/ChatPanel";
-import { SettingsPanel } from "./components/SettingsPanel";
-import { SessionPanel } from "./components/SessionPanel";
-import { SuggestionsPanel } from "./components/SuggestionsPanel";
-import { StatusPill } from "./components/StatusPill";
-import { VoicePanel } from "./components/VoicePanel";
+import { useEffect, useRef, useState } from "react";
+import { LoginPage } from "./components/LoginPage";
+import { MainPage } from "./components/MainPage";
 import { login } from "./lib/api";
-import { ChatMessage } from "./lib/types";
+import { initLogger } from "./lib/logger";
+import type { ChatMessage } from "./lib/types";
 import { createSessionSocket, WsMessage } from "./lib/ws";
+
+// Intercept all console.error / console.warn and forward to frontend.log
+initLogger();
+
+const MAX_MESSAGE_LENGTH = 2_000;
 
 export default function App() {
   const [sessionStatus, setSessionStatus] = useState<"idle" | "connecting" | "active" | "error">("idle");
   const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
-  const [voiceStatus, setVoiceStatus] = useState<"idle" | "listening" | "speaking" | "error">("idle");
   const [ws, setWs] = useState<WebSocket | null>(null);
+  const [isTyping, setIsTyping] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
@@ -23,46 +25,91 @@ export default function App() {
     },
   ]);
 
-  useEffect(() => {
-    if (!sessionToken) {
-      return;
-    }
+  // Track whether the session was closed intentionally so onclose
+  // can distinguish a user-initiated stop from an unexpected disconnect.
+  const intentionalCloseRef = useRef(false);
 
-    const socket = createSessionSocket(sessionToken);
+  useEffect(() => {
+    if (!sessionToken) return;
+
+    const socket = createSessionSocket();
     setWs(socket);
 
     socket.onopen = () => {
-      setSessionStatus("active");
+      socket.send(
+        JSON.stringify({ type: "client.hello", payload: { token: sessionToken } })
+      );
     };
 
     socket.onclose = () => {
-      setSessionStatus("idle");
       setWs(null);
+      setIsTyping(false);
+      if (intentionalCloseRef.current) {
+        intentionalCloseRef.current = false;
+        setSessionStatus("idle");
+      } else {
+        setSessionToken(null);
+        setSessionStatus("error");
+        setSessionError("Connection lost. Please start a new session.");
+      }
     };
 
     socket.onerror = () => {
-      setSessionStatus("error");
-      setSessionError("WebSocket error");
+      setSessionError("Cannot reach server. Make sure the backend is running.");
     };
 
     socket.onmessage = (event) => {
       try {
-        const message = JSON.parse(event.data) as WsMessage;
+        const message = JSON.parse(event.data as string) as WsMessage;
+
+        if (message.type === "server.hello") {
+          setSessionStatus("active");
+          const name = message.payload.display_name as string | undefined;
+          if (name) {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: crypto.randomUUID(),
+                role: "assistant",
+                text: `Hello, ${name}. I'm VERA — ready when you are.`,
+              },
+            ]);
+          }
+          return;
+        }
+
         if (message.type === "assistant.text" && typeof message.payload.text === "string") {
+          setIsTyping(false);
           setMessages((prev) => [
             ...prev,
-            { id: crypto.randomUUID(), role: "assistant", text: message.payload.text },
+            { id: crypto.randomUUID(), role: "assistant", text: message.payload.text as string },
           ]);
+          return;
         }
+
         if (message.type === "server.error" && typeof message.payload.message === "string") {
-          setSessionError(message.payload.message);
+          const msg = message.payload.message as string;
+          setIsTyping(false);
+          if (msg === "unauthorized" || msg === "hello_timeout") {
+            setSessionToken(null);
+            setSessionStatus("error");
+            setSessionError("Session rejected. Please log in again.");
+          } else if (msg === "rate_limited") {
+            setSessionError("You're sending messages too fast — slow down.");
+          } else {
+            setSessionError(msg);
+          }
         }
       } catch {
-        return;
+        // Non-JSON or malformed — ignore silently
       }
     };
 
     return () => {
+      // Mark as intentional so onclose doesn't wipe the session token.
+      // React StrictMode fires this cleanup immediately on first mount then
+      // re-runs the effect — without this flag the token would be cleared.
+      intentionalCloseRef.current = true;
       socket.close();
     };
   }, [sessionToken]);
@@ -80,21 +127,26 @@ export default function App() {
   };
 
   const handleStopSession = () => {
+    intentionalCloseRef.current = true;
     ws?.close();
     setSessionToken(null);
     setSessionStatus("idle");
+    setIsTyping(false);
   };
 
   const handleSendText = (text: string) => {
-    if (!text.trim()) {
+    const trimmed = text.trim().slice(0, MAX_MESSAGE_LENGTH);
+    if (!trimmed) return;
+
+    setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "user", text: trimmed }]);
+
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      setSessionError("Not connected — please start a new session.");
       return;
     }
 
-    setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "user", text }]);
-
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "client.message", payload: { text } }));
-    }
+    setIsTyping(true);
+    ws.send(JSON.stringify({ type: "client.message", payload: { text: trimmed } }));
   };
 
   const handleVadStart = () => {
@@ -109,43 +161,27 @@ export default function App() {
     }
   };
 
-  return (
-    <div className="app-shell">
-      <header className="app-header">
-        <div>
-          <p className="eyebrow">Voice-enabled Evolving Reasoning Assistant</p>
-          <h1>VERA Control Room</h1>
-          <p className="subhead">
-            Always-on voice, proactive suggestions, and privacy-first memory controls.
-          </p>
-        </div>
-        <div className="status-stack">
-          <StatusPill
-            label="Session"
-            value={sessionStatus === "active" ? "Active" : "Idle"}
-            tone={sessionStatus === "active" ? "good" : "warn"}
-          />
-          <StatusPill
-            label="Mic"
-            value={voiceStatus === "speaking" ? "Speaking" : voiceStatus === "listening" ? "Listening" : "Off"}
-            tone={voiceStatus === "speaking" ? "good" : "warn"}
-          />
-          <StatusPill label="Policy" value="Approval Gates" tone="info" />
-        </div>
-      </header>
+  if (sessionStatus === "idle" || sessionStatus === "error") {
+    return (
+      <LoginPage
+        status={sessionStatus}
+        onStart={handleStartSession}
+        error={sessionError}
+      />
+    );
+  }
 
-      <main className="grid">
-        <SessionPanel status={sessionStatus} onStart={handleStartSession} onStop={handleStopSession} error={sessionError} />
-        <VoicePanel
-          sessionActive={sessionStatus === "active"}
-          onVadStart={handleVadStart}
-          onVadEnd={handleVadEnd}
-          onStatusChange={setVoiceStatus}
-        />
-        <ChatPanel messages={messages} onSend={handleSendText} disabled={sessionStatus !== "active"} />
-        <SuggestionsPanel />
-        <SettingsPanel />
-      </main>
-    </div>
+  return (
+    <MainPage
+      sessionStatus={sessionStatus}
+      sessionToken={sessionToken}
+      ws={ws}
+      messages={messages}
+      isTyping={isTyping}
+      onStop={handleStopSession}
+      onSend={handleSendText}
+      onVadStart={handleVadStart}
+      onVadEnd={handleVadEnd}
+    />
   );
 }

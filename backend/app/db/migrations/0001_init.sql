@@ -95,3 +95,33 @@ CREATE TABLE IF NOT EXISTS metrics_rollup (
     errors_count INT NOT NULL DEFAULT 0,
     PRIMARY KEY (day, user_id)
 );
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    session_id UUID REFERENCES sessions(id) ON DELETE SET NULL,
+    ts TIMESTAMP NOT NULL DEFAULT NOW(),
+    role TEXT NOT NULL,
+    content TEXT NOT NULL
+);
+
+-- Indexes for common lookup patterns
+CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions (session_token);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_session_events_session_ts ON session_events (session_id, ts DESC);
+
+CREATE INDEX IF NOT EXISTS idx_agent_suggestions_user_ts ON agent_suggestions (user_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_suggestions_status ON agent_suggestions (status);
+
+CREATE INDEX IF NOT EXISTS idx_agent_actions_user_ts ON agent_actions (user_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_actions_approval ON agent_actions (approval_status);
+
+CREATE INDEX IF NOT EXISTS idx_memory_items_user_active ON memory_items (user_id, is_active);
+CREATE INDEX IF NOT EXISTS idx_memory_items_expires ON memory_items (expires_at) WHERE expires_at IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_user_ts ON audit_log (user_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_session_ts ON audit_log (session_id, ts DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_event_type ON audit_log (event_type);
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_user_ts ON chat_messages (user_id, ts DESC);

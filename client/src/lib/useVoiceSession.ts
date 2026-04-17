@@ -1,11 +1,26 @@
+/**
+ * useVoiceSession — VAD + Web Speech API speech-to-text
+ *
+ * Two parallel layers:
+ *   1. WebAudio AnalyserNode  → VAD (detects speech start/end for barge-in)
+ *   2. SpeechRecognition API  → STT (transcribes speech into final text)
+ *
+ * When the browser speaks (TTS), the VAD fires onVadStart which cancels
+ * SpeechSynthesis immediately — barge-in still works.
+ *
+ * The caller receives onSpeechFinal(text) for every recognized utterance.
+ * If the browser doesn't support SpeechRecognition, STT is silently skipped
+ * and only VAD runs (same as before).
+ */
 import { useCallback, useEffect, useRef, useState } from "react";
 
-type VoiceStatus = "idle" | "listening" | "speaking" | "error";
+export type VoiceStatus = "idle" | "listening" | "speaking" | "error";
 
 type VoiceSessionOptions = {
   onVadStart?: () => void;
   onVadEnd?: () => void;
   onStatusChange?: (status: VoiceStatus) => void;
+  onSpeechFinal?: (text: string) => void;
   threshold?: number;
   hangoverMs?: number;
 };
@@ -14,30 +29,53 @@ type VoiceSessionState = {
   status: VoiceStatus;
   error: string | null;
   isRunning: boolean;
+  interimTranscript: string;
   start: () => Promise<void>;
   stop: () => void;
 };
 
+// Browser SpeechRecognition shim (not yet in all TypeScript lib defs)
+declare global {
+  interface Window {
+    SpeechRecognition?: new () => any;
+    webkitSpeechRecognition?: new () => any;
+  }
+}
+
+const SpeechRecognitionImpl =
+  (typeof window !== "undefined" &&
+    (window.SpeechRecognition || window.webkitSpeechRecognition)) ||
+  null;
+
 export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSessionState {
-  const { onVadStart, onVadEnd, onStatusChange, threshold = 0.03, hangoverMs = 400 } = options;
+  const { onVadStart, onVadEnd, onStatusChange, onSpeechFinal, threshold = 0.03, hangoverMs = 400 } = options;
+
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+  const [interimTranscript, setInterimTranscript] = useState("");
+
+  // VAD refs
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const rafIdRef = useRef<number | null>(null);
   const lastVoiceAtRef = useRef<number | null>(null);
-  const speakingRef = useRef<boolean>(false);
+  const speakingRef = useRef(false);
+
+  // STT refs
+  const recognitionRef = useRef<any>(null);
+  const sttRunningRef = useRef(false);
 
   const updateStatus = useCallback(
     (next: VoiceStatus) => {
       setStatus(next);
       onStatusChange?.(next);
     },
-    [onStatusChange]
+    [onStatusChange],
   );
 
   const stop = useCallback(() => {
+    // Stop VAD
     if (rafIdRef.current) {
       cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = null;
@@ -50,28 +88,33 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
       audioContextRef.current.close();
       audioContextRef.current = null;
     }
-
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
+
+    // Stop STT
+    if (recognitionRef.current && sttRunningRef.current) {
+      try { recognitionRef.current.stop(); } catch { /* ignore */ }
+    }
+    sttRunningRef.current = false;
+    setInterimTranscript("");
 
     updateStatus("idle");
   }, [updateStatus]);
 
   const start = useCallback(async () => {
-    if (status === "listening" || status === "speaking") {
-      return;
-    }
+    if (status === "listening" || status === "speaking") return;
 
     try {
       setError(null);
+
+      // ── VAD setup ────────────────────────────────────────────────────
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
 
       const audioContext = new AudioContext();
       audioContextRef.current = audioContext;
-
       const source = audioContext.createMediaStreamSource(stream);
       const analyser = audioContext.createAnalyser();
       analyser.fftSize = 1024;
@@ -82,17 +125,14 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
       updateStatus("listening");
 
       const loop = () => {
-        if (!analyserRef.current) {
-          return;
-        }
-
+        if (!analyserRef.current) return;
         analyserRef.current.getByteTimeDomainData(buffer);
-        let sumSquares = 0;
-        for (let i = 0; i < buffer.length; i += 1) {
-          const normalized = (buffer[i] - 128) / 128;
-          sumSquares += normalized * normalized;
+        let sum = 0;
+        for (let i = 0; i < buffer.length; i++) {
+          const n = (buffer[i] - 128) / 128;
+          sum += n * n;
         }
-        const rms = Math.sqrt(sumSquares / buffer.length);
+        const rms = Math.sqrt(sum / buffer.length);
         const now = performance.now();
 
         if (rms > threshold) {
@@ -113,13 +153,59 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
 
         rafIdRef.current = requestAnimationFrame(loop);
       };
-
       rafIdRef.current = requestAnimationFrame(loop);
+
+      // ── STT setup ────────────────────────────────────────────────────
+      if (SpeechRecognitionImpl && onSpeechFinal) {
+        const recognition = new SpeechRecognitionImpl();
+        recognitionRef.current = recognition;
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = "en-US";
+
+        recognition.onresult = (event: any) => {
+          let interim = "";
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const result = event.results[i];
+            if (result.isFinal) {
+              const text = result[0].transcript.trim();
+              if (text) {
+                setInterimTranscript("");
+                onSpeechFinal(text);
+              }
+            } else {
+              interim += result[0].transcript;
+            }
+          }
+          setInterimTranscript(interim);
+        };
+
+        recognition.onerror = (event: any) => {
+          // "no-speech" and "aborted" are normal — don't show as errors
+          if (event.error !== "no-speech" && event.error !== "aborted") {
+            setError(`Speech recognition error: ${event.error}`);
+          }
+        };
+
+        recognition.onend = () => {
+          sttRunningRef.current = false;
+          // Auto-restart while VAD is still running
+          if (analyserRef.current) {
+            try {
+              recognition.start();
+              sttRunningRef.current = true;
+            } catch { /* ignore */ }
+          }
+        };
+
+        recognition.start();
+        sttRunningRef.current = true;
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Microphone error");
       updateStatus("error");
     }
-  }, [hangoverMs, onVadEnd, onVadStart, status, threshold, updateStatus]);
+  }, [hangoverMs, onVadEnd, onVadStart, onSpeechFinal, status, threshold, updateStatus]);
 
   useEffect(() => () => stop(), [stop]);
 
@@ -127,9 +213,8 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
     status,
     error,
     isRunning: status === "listening" || status === "speaking",
+    interimTranscript,
     start,
     stop,
   };
 }
-
-export type { VoiceStatus };

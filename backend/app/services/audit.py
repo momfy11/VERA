@@ -1,7 +1,7 @@
 """Audit logging service."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
@@ -20,7 +20,7 @@ def log_event(
     """Persist a new audit log entry."""
     payload = payload or {}
     entry = models.AuditLog(
-        ts=datetime.utcnow(),
+        ts=datetime.now(timezone.utc),
         user_id=user_id,
         session_id=session_id,
         event_type=event_type,

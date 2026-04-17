@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(psql postgresql://vera:vera@localhost:5432/vera -c ' *)",
+      "Bash('/c/Program Files/PostgreSQL/16/bin/psql.exe' postgresql://vera:vera@localhost:5432/vera -c ' *)",
+      "Bash(\"/c/Program Files/PostgreSQL/16/bin/psql.exe\" \"postgresql://vera:vera@localhost:5432/vera\" -c \"CREATE TABLE IF NOT EXISTS chat_messages \\(id UUID PRIMARY KEY DEFAULT gen_random_uuid\\(\\), user_id UUID NOT NULL REFERENCES users\\(id\\) ON DELETE CASCADE, session_id UUID REFERENCES sessions\\(id\\) ON DELETE SET NULL, ts TIMESTAMP NOT NULL DEFAULT NOW\\(\\), role TEXT NOT NULL, content TEXT NOT NULL\\);\")",
+      "Bash(python -c ' *)",
+      "Bash(./vera/Scripts/pip install *)",
+      "Bash(./vera/Scripts/python -c ' *)",
+      "Bash(./vera/Scripts/pip list *)",
+      "Bash(./vera/Scripts/python -c \"import asyncio; print\\('asyncio ok'\\)\")"
+    ]
+  }
+}

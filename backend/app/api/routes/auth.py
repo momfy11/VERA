@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -27,7 +27,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse
     session_token = secrets.token_urlsafe(32)
     session = models.Session(
         user_id=user.id,
-        started_at=datetime.utcnow(),
+        started_at=datetime.now(timezone.utc),
         client_meta_json={},
         session_token=session_token,
     )

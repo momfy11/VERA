@@ -7,11 +7,14 @@ type SessionPanelProps = {
   error: string | null;
 };
 
+const isValidEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+
 export function SessionPanel({ status, onStart, onStop, error }: SessionPanelProps) {
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
 
   const canStart = status === "idle" || status === "error";
+  const emailOk = isValidEmail(email);
 
   return (
     <section className="panel">
@@ -21,7 +24,7 @@ export function SessionPanel({ status, onStart, onStop, error }: SessionPanelPro
         <label>
           Email
           <input
-            type="email"
+            type="text"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             placeholder="you@domain.com"
@@ -42,7 +45,7 @@ export function SessionPanel({ status, onStart, onStop, error }: SessionPanelPro
           type="button"
           className="button"
           onClick={() => onStart(email, displayName || undefined)}
-          disabled={!canStart || !email}
+          disabled={!canStart || !emailOk}
         >
           {status === "connecting" ? "Connecting..." : "Start session"}
         </button>

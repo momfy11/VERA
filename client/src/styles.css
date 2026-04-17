@@ -20,26 +20,255 @@
   box-sizing: border-box;
 }
 
-body {
+html, body, #root {
+  height: 100%;
   margin: 0;
+}
+
+body {
   background: radial-gradient(circle at top, #fff4e8 0%, var(--bg) 45%, var(--bg-deep) 100%);
   color: var(--ink);
-  min-height: 100vh;
 }
 
-.app-shell {
-  padding: 40px clamp(20px, 4vw, 64px) 64px;
+/* ── Login page ─────────────────────────────────────────────────────────── */
+
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.login-card {
+  background: var(--panel);
+  border-radius: 28px;
+  padding: 48px 40px;
+  box-shadow: var(--shadow);
+  border: 1px solid rgba(31, 29, 26, 0.05);
+  width: 100%;
+  max-width: 440px;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 20px;
+  position: relative;
+  overflow: hidden;
 }
 
-.app-header {
+.login-card::after {
+  content: "";
+  position: absolute;
+  width: 260px;
+  height: 260px;
+  right: -80px;
+  top: -80px;
+  background: radial-gradient(circle, rgba(214, 107, 63, 0.18), transparent 70%);
+  pointer-events: none;
+}
+
+.login-subhead {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.login-btn {
+  width: 100%;
+  justify-content: center;
+  padding: 14px 20px;
+  font-size: 1rem;
+}
+
+/* ── Main page ──────────────────────────────────────────────────────────── */
+
+.main-page {
+  height: 100vh;
   display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.main-topbar {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  align-items: flex-end;
+  gap: 16px;
+  padding: 12px 24px;
+  background: var(--panel);
+  border-bottom: 1px solid rgba(31, 29, 26, 0.08);
+  box-shadow: 0 2px 12px rgba(31, 29, 26, 0.06);
+  flex-shrink: 0;
   flex-wrap: wrap;
+}
+
+.main-topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar-eyebrow {
+  font-family: "Fraunces", serif;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+}
+
+.main-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.main-chat {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+
+.chat-bubble.user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: white;
+  max-width: 75%;
+}
+
+.chat-bubble.user strong {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.chat-bubble.user p {
+  color: white;
+}
+
+.chat-bubble.assistant {
+  align-self: flex-start;
+  max-width: 85%;
+}
+
+.main-voicebar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 24px;
+  background: rgba(255, 250, 244, 0.9);
+  border-top: 1px solid rgba(31, 29, 26, 0.06);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  min-height: 48px;
+}
+
+.voice-interim {
+  flex: 1;
+  font-style: italic;
+  color: var(--muted);
+  font-size: 0.9rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voice-bar-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.main-input {
+  display: flex;
+  gap: 12px;
+  padding: 12px 24px 16px;
+  background: var(--panel);
+  border-top: 1px solid rgba(31, 29, 26, 0.08);
+  flex-shrink: 0;
+}
+
+.main-input input {
+  flex: 1;
+  border-radius: 999px;
+  border: 1px solid rgba(31, 29, 26, 0.2);
+  padding: 12px 16px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  background: white;
+}
+
+.main-input input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid rgba(31, 29, 26, 0.15);
+  background: white;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 1rem;
+  transition: background 0.15s;
+}
+
+.icon-btn:hover {
+  background: var(--bg);
+}
+
+/* ── Settings drawer ────────────────────────────────────────────────────── */
+
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(31, 29, 26, 0.35);
+  z-index: 100;
+}
+
+.settings-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: min(400px, 92vw);
+  background: var(--bg);
+  box-shadow: -4px 0 32px rgba(31, 29, 26, 0.18);
+  z-index: 101;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.settings-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid rgba(31, 29, 26, 0.08);
+  flex-shrink: 0;
+}
+
+.settings-drawer-header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.settings-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
 .eyebrow {
@@ -54,25 +283,6 @@ h1 {
   margin: 0;
   font-family: "Fraunces", serif;
   font-size: clamp(2.4rem, 4vw, 3.6rem);
-}
-
-.subhead {
-  margin: 12px 0 0;
-  max-width: 520px;
-  color: var(--muted);
-  font-size: 1rem;
-}
-
-.status-stack {
-  display: grid;
-  gap: 12px;
-  min-width: 200px;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 24px;
 }
 
 .panel {
@@ -114,6 +324,8 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .chat-bubble {
@@ -289,13 +501,29 @@ h1 {
   font-size: 0.9rem;
 }
 
-@media (max-width: 720px) {
-  .app-shell {
-    padding: 24px;
+@media (max-width: 600px) {
+  .main-topbar {
+    padding: 10px 16px;
+    gap: 8px;
   }
 
-  .status-stack {
-    width: 100%;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  .topbar-eyebrow {
+    font-size: 1.2rem;
+  }
+
+  .main-chat {
+    padding: 16px;
+  }
+
+  .main-input {
+    padding: 10px 16px 14px;
+  }
+
+  .main-voicebar {
+    padding: 8px 16px;
+  }
+
+  .login-card {
+    padding: 36px 24px;
   }
 }
