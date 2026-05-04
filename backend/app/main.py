@@ -10,14 +10,26 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from backend.app.core.config import settings
 from backend.app.observability.logger import configure_logging
-from backend.app.api.routes import auth, health, suggestions
+from backend.app.api.routes import auth, google, health, suggestions
 from backend.app.api.ws import websocket_endpoint
 from backend.app.services.scheduler import proactive_scheduler
 
 configure_logging()
 
 logger = logging.getLogger(__name__)
+
+
+def _allowed_origins() -> list[str]:
+    """Parse ALLOWED_ORIGINS env var (comma-separated). Default safe.
+
+    Use ['*'] only if explicitly set. In dev, defaults to localhost frontend.
+    """
+    raw = (settings.allowed_origins or "").strip()
+    if not raw:
+        return ["http://localhost:5173"]
+    return [o.strip() for o in raw.split(",") if o.strip()]
 
 
 class _NoCORSForWebSocket:
@@ -34,13 +46,18 @@ class _NoCORSForWebSocket:
     """
 
     def __init__(self, app: ASGIApp) -> None:
+        origins = _allowed_origins()
+        # If user explicitly opted into wildcard ('*' anywhere) preserve it,
+        # otherwise tighten to whatever they listed.
+        wildcard = "*" in origins
         self._http_app = CORSMiddleware(
             app,
-            allow_origins=["*"],
-            allow_credentials=False,
+            allow_origins=origins,
+            allow_credentials=not wildcard,
             allow_methods=["*"],
             allow_headers=["*"],
         )
+        logger.info("CORS allow_origins=%s", origins)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "websocket":
@@ -69,6 +86,7 @@ app.add_middleware(_NoCORSForWebSocket)
 app.include_router(health.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 app.include_router(suggestions.router, prefix="/api")
+app.include_router(google.router, prefix="/api")
 
 
 @app.exception_handler(ValidationError)

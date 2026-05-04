@@ -2,8 +2,7 @@ version: "3.8"
 
 services:
   postgres:
-    image: postgres:15-alpine
-    container_name: vera-postgres
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: vera
       POSTGRES_PASSWORD: vera

@@ -23,12 +23,17 @@ apscheduler>=3.10.4
 # Observability
 structlog>=24.4.0
 
-# LLM providers (Mistral primary, Groq alternative)
+# LLM providers — supports groq, gemini (via openai SDK), ollama (via openai SDK), mistral
 mistralai>=1.2.0
 groq>=0.11.0
+openai>=1.50.0
 httpx>=0.27.0
 
 # Tool calling — web search, system
-duckduckgo-search>=6.0.0
+ddgs>=9.0.0
 plyer>=2.1.0
 pyperclip>=1.8.0
+
+# Phase 5.1 — semantic memory (embeddings + pgvector)
+fastembed>=0.4.0
+pgvector>=0.3.0

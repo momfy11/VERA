@@ -9,7 +9,13 @@
       "Bash(./vera/Scripts/pip install *)",
       "Bash(./vera/Scripts/python -c ' *)",
       "Bash(./vera/Scripts/pip list *)",
-      "Bash(./vera/Scripts/python -c \"import asyncio; print\\('asyncio ok'\\)\")"
+      "Bash(./vera/Scripts/python -c \"import asyncio; print\\('asyncio ok'\\)\")",
+      "Bash(./vera/Scripts/python -m py_compile backend/app/services/tools.py backend/app/services/orchestrator.py backend/app/services/llm.py backend/app/services/memory.py backend/app/api/ws.py backend/app/main.py)",
+      "Bash(vera/Scripts/python -c ' *)",
+      "Bash(vera/Scripts/pip install *)",
+      "Bash(npm install *)",
+      "Read(//c/Users/momfy/AppData/Local/npm-cache/_logs/**)",
+      "Bash(npm run *)"
     ]
   }
 }

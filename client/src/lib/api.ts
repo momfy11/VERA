@@ -34,6 +34,40 @@ export async function fetchSuggestions(sessionToken: string): Promise<Suggestion
   return (data.items as Array<Record<string, unknown>>).map(normaliseSuggestion);
 }
 
+export type GoogleStatus = {
+  connected: boolean;
+  email: string | null;
+  in_progress: boolean;
+  error: string | null;
+};
+
+export async function googleStatus(sessionToken: string): Promise<GoogleStatus> {
+  const response = await fetch(`${API_BASE}/google/status`, {
+    headers: { "X-Session-Token": sessionToken },
+  });
+  if (!response.ok) throw new Error("Failed to fetch Google status");
+  return response.json();
+}
+
+export async function googleConnect(sessionToken: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/google/connect`, {
+    method: "POST",
+    headers: { "X-Session-Token": sessionToken },
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.detail || "Could not start Google authorization");
+  }
+}
+
+export async function googleDisconnect(sessionToken: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/google/disconnect`, {
+    method: "POST",
+    headers: { "X-Session-Token": sessionToken },
+  });
+  if (!response.ok) throw new Error("Could not disconnect Google");
+}
+
 export async function actOnSuggestion(
   sessionToken: string,
   suggestionId: string,

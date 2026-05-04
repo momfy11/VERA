@@ -10,13 +10,22 @@ import { createSessionSocket, WsMessage } from "./lib/ws";
 initLogger();
 
 const MAX_MESSAGE_LENGTH = 2_000;
+const TOKEN_STORAGE_KEY = "vera.session_token";
 
 export default function App() {
-  const [sessionStatus, setSessionStatus] = useState<"idle" | "connecting" | "active" | "error">("idle");
-  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  // Restore previous session from localStorage so closing the browser
+  // doesn't force re-login — VERA is meant to feel always-on.
+  const initialToken = typeof window !== "undefined"
+    ? window.localStorage.getItem(TOKEN_STORAGE_KEY)
+    : null;
+  const [sessionStatus, setSessionStatus] = useState<"idle" | "connecting" | "active" | "error">(
+    initialToken ? "connecting" : "idle",
+  );
+  const [sessionToken, setSessionToken] = useState<string | null>(initialToken);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [isTyping, setIsTyping] = useState(false);
+  const [thinkingText, setThinkingText] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
@@ -48,6 +57,7 @@ export default function App() {
         intentionalCloseRef.current = false;
         setSessionStatus("idle");
       } else {
+        window.localStorage.removeItem(TOKEN_STORAGE_KEY);
         setSessionToken(null);
         setSessionStatus("error");
         setSessionError("Connection lost. Please start a new session.");
@@ -80,6 +90,7 @@ export default function App() {
 
         if (message.type === "assistant.text" && typeof message.payload.text === "string") {
           setIsTyping(false);
+          setThinkingText(null);
           setMessages((prev) => [
             ...prev,
             { id: crypto.randomUUID(), role: "assistant", text: message.payload.text as string },
@@ -87,10 +98,25 @@ export default function App() {
           return;
         }
 
+        // Pre-tool ack — shown above typing indicator + spoken via TTS
+        if (message.type === "assistant.thinking" && typeof message.payload.text === "string") {
+          setThinkingText(message.payload.text as string);
+          return;
+        }
+
+        // Maps / open-URL events from VERA tools — open in new tab/Maps app
+        if (message.type === "agent.open_url" && typeof message.payload.url === "string") {
+          const url = message.payload.url as string;
+          // _blank → new tab on PC, deep-link to native app on mobile
+          window.open(url, "_blank", "noopener,noreferrer");
+          return;
+        }
+
         if (message.type === "server.error" && typeof message.payload.message === "string") {
           const msg = message.payload.message as string;
           setIsTyping(false);
           if (msg === "unauthorized" || msg === "hello_timeout") {
+            window.localStorage.removeItem(TOKEN_STORAGE_KEY);
             setSessionToken(null);
             setSessionStatus("error");
             setSessionError("Session rejected. Please log in again.");
@@ -119,6 +145,7 @@ export default function App() {
     setSessionStatus("connecting");
     try {
       const response = await login(email, displayName);
+      window.localStorage.setItem(TOKEN_STORAGE_KEY, response.session_token);
       setSessionToken(response.session_token);
     } catch (err) {
       setSessionStatus("error");
@@ -128,6 +155,7 @@ export default function App() {
 
   const handleStopSession = () => {
     intentionalCloseRef.current = true;
+    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
     ws?.close();
     setSessionToken(null);
     setSessionStatus("idle");
@@ -178,6 +206,7 @@ export default function App() {
       ws={ws}
       messages={messages}
       isTyping={isTyping}
+      thinkingText={thinkingText}
       onStop={handleStopSession}
       onSend={handleSendText}
       onVadStart={handleVadStart}

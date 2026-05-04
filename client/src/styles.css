@@ -271,6 +271,208 @@ body {
   gap: 20px;
 }
 
+.thinking-bubble {
+  opacity: 0.85;
+}
+
+.thinking-text {
+  font-style: italic;
+  color: var(--muted);
+  margin: 0;
+}
+
+/* ── Integrations panel ─────────────────────────────────────────────────── */
+
+.integration-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(47, 92, 88, 0.06);
+  border-radius: 16px;
+}
+
+.integration-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.integration-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.integration-label {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.integration-status {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.integration-status.ok {
+  color: var(--good);
+  background: rgba(42, 127, 98, 0.12);
+}
+
+.integration-status.off {
+  color: var(--muted);
+  background: rgba(31, 29, 26, 0.08);
+}
+
+.integration-email {
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-family: ui-monospace, Consolas, monospace;
+}
+
+.integration-hint {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+.integration-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.integration-actions .button {
+  padding: 8px 14px;
+  font-size: 0.85rem;
+}
+
+/* ── Markdown rendering inside chat bubbles ─────────────────────────────── */
+
+.markdown-body {
+  font-size: 0.95rem;
+  line-height: 1.55;
+  color: inherit;
+}
+
+.markdown-body > *:first-child { margin-top: 6px; }
+.markdown-body > *:last-child  { margin-bottom: 0; }
+
+.markdown-body p {
+  margin: 0 0 10px;
+}
+
+.markdown-body strong { font-weight: 600; }
+.markdown-body em     { font-style: italic; }
+
+.markdown-body ul,
+.markdown-body ol {
+  margin: 6px 0 10px;
+  padding-left: 22px;
+}
+
+.markdown-body li {
+  margin: 3px 0;
+}
+
+.markdown-body li > p { margin: 0; }
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  margin: 12px 0 6px;
+  font-weight: 600;
+  font-family: "Fraunces", serif;
+  line-height: 1.25;
+}
+
+.markdown-body h1 { font-size: 1.3rem; }
+.markdown-body h2 { font-size: 1.15rem; }
+.markdown-body h3 { font-size: 1.05rem; }
+.markdown-body h4 { font-size: 1rem; }
+
+.markdown-body a {
+  color: var(--accent-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-body a:hover {
+  color: var(--accent);
+}
+
+.markdown-body code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, monospace;
+  font-size: 0.85em;
+  background: rgba(31, 29, 26, 0.08);
+  padding: 1px 6px;
+  border-radius: 6px;
+}
+
+.markdown-body pre {
+  background: rgba(31, 29, 26, 0.06);
+  padding: 12px 14px;
+  border-radius: 10px;
+  overflow-x: auto;
+  margin: 10px 0;
+  font-size: 0.85em;
+  line-height: 1.45;
+}
+
+.markdown-body pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
+.markdown-body blockquote {
+  border-left: 3px solid var(--accent);
+  margin: 10px 0;
+  padding: 4px 0 4px 12px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+.markdown-body table {
+  border-collapse: collapse;
+  margin: 10px 0;
+  width: 100%;
+  font-size: 0.88em;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid rgba(31, 29, 26, 0.15);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.markdown-body th {
+  background: rgba(31, 29, 26, 0.05);
+  font-weight: 600;
+}
+
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid rgba(31, 29, 26, 0.15);
+  margin: 14px 0;
+}
+
+/* On the user's orange bubble, swap link/code colors so they stay legible */
+.chat-bubble.user .markdown-body a { color: white; }
+.chat-bubble.user .markdown-body code,
+.chat-bubble.user .markdown-body pre {
+  background: rgba(255, 255, 255, 0.18);
+  color: white;
+}
+
 .eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.2em;

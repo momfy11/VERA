@@ -156,12 +156,20 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
         # ── Step 3: register connection + greet ──────────────────────────
         _ws_log.info("WS authenticated — user=%s", user.email)
+        # Live-event sender so orchestrator can push thinking-acks etc. mid-turn
+        async def _send_live_event(event: dict) -> None:
+            try:
+                await websocket.send_text(json.dumps(event))
+            except Exception:
+                pass  # client may have disconnected; main loop will catch it
+
         try:
             orchestrator = Orchestrator(
                 db=db,
                 user_id=user.id,
                 display_name=user.display_name,
                 session_id=session.id,
+                on_event=_send_live_event,
             )
         except Exception as exc:
             _ws_log.exception("Failed to initialise Orchestrator for user %s: %r", user.email, exc)
@@ -229,6 +237,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 text = payload.get("text") if isinstance(payload.get("text"), str) else ""
                 if text:
                     response = await orchestrator.handle_text(text)
+                    # Send any tool-emitted side events (open_url etc.) before the reply
+                    for ev in orchestrator.drain_events():
+                        await websocket.send_text(json.dumps(ev))
                     await websocket.send_text(
                         json.dumps({"type": "assistant.text", "payload": {"text": response}})
                     )

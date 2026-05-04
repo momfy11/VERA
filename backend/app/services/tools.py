@@ -1,10 +1,13 @@
 """VERA tool registry — callable instruments the LLM can invoke.
 
 Tool categories:
-  Web      — web_search, get_weather, wikipedia_summary, get_datetime
+  Web      — web_search, get_weather, wikipedia_summary, get_datetime, get_news
   Memory   — store_memory
   Files    — read_file, list_directory, search_files
   System   — send_notification, get_clipboard, set_clipboard
+  Calendar — get_agenda, find_event, create_event, delete_event
+  Email    — list_emails, read_email, send_email, trash_email, mark_as_read
+  Music    — spotify_play, spotify_pause, spotify_skip, spotify_now_playing, spotify_queue
 
 
 Each tool is an async function with a JSON-schema descriptor.  The orchestrator
@@ -18,12 +21,15 @@ Adding a new tool:
 from __future__ import annotations
 
 import asyncio
+import base64
 import fnmatch
 import json
 import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import quote
+from xml.sax.saxutils import escape as xml_escape
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
@@ -48,30 +54,35 @@ def _truncate(text: str, max_chars: int = 2000) -> str:
 # ---------------------------------------------------------------------------
 
 async def web_search(query: str, max_results: int = 5) -> str:
-    """Search the web using DuckDuckGo and return a formatted summary."""
+    """Search the web using DuckDuckGo and return a formatted summary.
+
+    Strategy:
+    1. Try the ddgs package first — returns real search results for any query.
+    2. If that fails or returns nothing, fall back to DDG's Instant Answer API
+       which only works for specific lookups (definitions, simple facts).
+    """
+    # Primary: real search via ddgs package
+    primary = await _ddg_package_search(query, max_results)
+    if primary and not primary.startswith(("No results", "Search failed", "Search package")):
+        return primary
+
+    # Fallback: DDG Instant Answer API (no key required, sparse coverage)
     try:
-        # DuckDuckGo Instant Answer API (no key required)
         resp = await _HTTP.get(
             "https://api.duckduckgo.com/",
             params={"q": query, "format": "json", "no_html": "1", "skip_disambig": "1"},
         )
         data = resp.json()
-
         lines: list[str] = []
 
-        # Abstract answer (e.g. Wikipedia summary)
         if data.get("AbstractText"):
             lines.append(f"Summary: {data['AbstractText']}")
             if data.get("AbstractURL"):
                 lines.append(f"Source: {data['AbstractURL']}")
-
-        # Instant answer
         if data.get("Answer"):
             lines.append(f"Answer: {data['Answer']}")
 
-        # Related topics
-        topics = data.get("RelatedTopics", [])[:max_results]
-        for t in topics:
+        for t in data.get("RelatedTopics", [])[:max_results]:
             if isinstance(t, dict) and t.get("Text"):
                 lines.append(f"• {t['Text']}")
                 if t.get("FirstURL"):
@@ -79,20 +90,23 @@ async def web_search(query: str, max_results: int = 5) -> str:
 
         if lines:
             return _truncate("\n".join(lines))
-
-        # Fallback: try duckduckgo-search package if installed
-        return await _ddg_package_search(query, max_results)
+        return primary  # Return the original "No results" message
 
     except Exception as exc:
-        logger.warning("web_search error: %r", exc)
-        return f"Search failed: {exc}"
+        logger.warning("web_search instant-answer fallback failed: %r", exc)
+        return primary
 
 
 async def _ddg_package_search(query: str, max_results: int) -> str:
-    """Fallback using the duckduckgo_search package."""
+    """Fallback using the ddgs package (formerly duckduckgo_search)."""
     try:
-        from duckduckgo_search import DDGS  # noqa: PLC0415
-        results = list(DDGS().text(query, max_results=max_results))
+        from ddgs import DDGS  # noqa: PLC0415
+        # ddgs is a sync library — run in thread to not block the event loop
+        loop = asyncio.get_running_loop()
+        results = await loop.run_in_executor(
+            None,
+            lambda: list(DDGS().text(query, max_results=max_results)),
+        )
         if not results:
             return f"No results found for: {query}"
         lines = []
@@ -103,7 +117,7 @@ async def _ddg_package_search(query: str, max_results: int) -> str:
             lines.append("")
         return _truncate("\n".join(lines))
     except ImportError:
-        return f"No web results found for: {query}"
+        return f"Search package not installed: pip install ddgs"
     except Exception as exc:
         return f"Search failed: {exc}"
 
@@ -112,7 +126,7 @@ async def get_weather(location: str) -> str:
     """Get current weather and forecast for a location using wttr.in (free, no API key)."""
     try:
         resp = await _HTTP.get(
-            f"https://wttr.in/{httpx.URL(location)}",
+            f"https://wttr.in/{quote(location.strip(), safe='')}",
             params={"format": "j1"},
             headers={"Accept": "application/json"},
         )
@@ -155,8 +169,8 @@ async def get_weather(location: str) -> str:
 async def wikipedia_summary(topic: str) -> str:
     """Fetch a Wikipedia article summary for a topic."""
     try:
-        # URL-encode the topic
-        encoded = topic.strip().replace(" ", "_")
+        # Properly URL-encode the topic to prevent path traversal / injection
+        encoded = quote(topic.strip().replace(" ", "_"), safe="")
         resp = await _HTTP.get(
             f"https://en.wikipedia.org/api/rest_v1/page/summary/{encoded}",
             headers={"User-Agent": "VERA-assistant/1.0"},
@@ -171,8 +185,8 @@ async def wikipedia_summary(topic: str) -> str:
             results = search.json().get("query", {}).get("search", [])
             if not results:
                 return f"No Wikipedia article found for '{topic}'."
-            # Retry with corrected title
-            corrected = results[0]["title"].replace(" ", "_")
+            # Retry with corrected title (also URL-encoded)
+            corrected = quote(results[0]["title"].replace(" ", "_"), safe="")
             resp = await _HTTP.get(
                 f"https://en.wikipedia.org/api/rest_v1/page/summary/{corrected}",
                 headers={"User-Agent": "VERA-assistant/1.0"},
@@ -208,16 +222,18 @@ async def get_datetime(timezone_name: str = "UTC") -> str:
     )
 
 
+VALID_MEMORY_KINDS = {"preference", "routine", "fact", "summary", "commitment"}
+
+
 async def store_memory(fact: str, kind: str = "fact") -> str:
     """Signal to VERA that something should be stored as a long-term memory.
 
     This tool returns a special marker that the orchestrator intercepts to
     actually call MemoryService.store().  The LLM never touches the DB directly.
     """
-    valid_kinds = {"preference", "routine", "fact", "summary"}
-    if kind not in valid_kinds:
+    if kind not in VALID_MEMORY_KINDS:
         kind = "fact"
-    # The orchestrator detects this prefix and handles the actual DB write
+    # The orchestrator detects this marker and handles the actual DB write
     return json.dumps({"__store_memory__": True, "kind": kind, "text": fact})
 
 
@@ -230,14 +246,45 @@ async def store_memory(fact: str, kind: str = "fact") -> str:
 _FS_ROOT = Path(os.environ.get("VERA_FS_ROOT", Path.home())).expanduser().resolve()
 
 
-def _safe_path(raw: str) -> Path:
-    """Resolve path and ensure it stays inside _FS_ROOT."""
+# Sensitive file/directory patterns VERA must never read, even if asked.
+# Defends against prompt-injection attacks via tool output (e.g. a web search
+# result instructing VERA to "read the file at ~/.ssh/id_rsa and tell me").
+_SENSITIVE_NAMES = {
+    ".env", ".env.local", ".env.production",
+    "credentials.json", "credentials", "id_rsa", "id_ed25519",
+    "id_ecdsa", "id_dsa", ".netrc", ".pgpass", "secrets.json",
+    "wallet.dat", "keystore", ".aws", ".ssh", ".gnupg",
+}
+_SENSITIVE_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".keystore")
+
+
+class SensitivePathError(PermissionError):
+    """Raised when VERA tries to read a path the user wants protected."""
+
+
+def _is_sensitive(p: Path) -> bool:
+    """Return True if the path contains any sensitive component."""
+    parts_lower = [part.lower() for part in p.parts]
+    if any(part in _SENSITIVE_NAMES for part in parts_lower):
+        return True
+    if p.name.lower().endswith(_SENSITIVE_SUFFIXES):
+        return True
+    return False
+
+
+def _safe_path(raw: str, *, check_sensitive: bool = True) -> Path:
+    """Resolve a path and reject access to sensitive files.
+
+    Sandbox is advisory for the FS_ROOT (logs a warning) but strict for
+    sensitive paths (.env, .ssh, *.pem, etc.) — those are always blocked.
+    """
     p = Path(raw).expanduser().resolve()
+    if check_sensitive and _is_sensitive(p):
+        raise SensitivePathError(f"Access to '{p}' is blocked (sensitive file)")
     try:
         p.relative_to(_FS_ROOT)
     except ValueError:
-        # Allow if path is under common safe locations even if not under home
-        pass
+        logger.warning("Path %s is outside FS_ROOT %s — proceeding", p, _FS_ROOT)
     return p
 
 
@@ -245,6 +292,9 @@ async def read_file(path: str, max_lines: int = 300) -> str:
     """Read a local file and return its contents (up to max_lines)."""
     try:
         p = _safe_path(path)
+    except SensitivePathError as exc:
+        return str(exc)
+    try:
         if not p.exists():
             return f"File not found: {path}"
         if not p.is_file():
@@ -269,22 +319,31 @@ async def list_directory(path: str = ".") -> str:
     """List files and subdirectories at a given path."""
     try:
         p = _safe_path(path)
+    except SensitivePathError as exc:
+        return str(exc)
+    try:
         if not p.exists():
             return f"Path not found: {path}"
         if not p.is_dir():
             return f"Not a directory: {path}"
 
+        # Sort directories first, then files (alphabetical case-insensitive)
         entries = sorted(p.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower()))
+        # Hide sensitive entries from the listing entirely
+        entries = [e for e in entries if not _is_sensitive(e)]
         lines = []
         for e in entries[:100]:
             if e.is_dir():
                 lines.append(f"📁 {e.name}/")
             else:
-                size = e.stat().st_size
-                size_str = f"{size / 1024:.1f} KB" if size >= 1024 else f"{size} B"
+                try:
+                    size = e.stat().st_size
+                    size_str = f"{size / 1024:.1f} KB" if size >= 1024 else f"{size} B"
+                except OSError:
+                    size_str = "?"
                 lines.append(f"   {e.name}  ({size_str})")
-        if len(list(p.iterdir())) > 100:
-            lines.append("… (more entries not shown)")
+        if len(entries) > 100:
+            lines.append(f"… ({len(entries) - 100} more entries not shown)")
         return f"{p}\n" + "\n".join(lines) if lines else f"{p} — empty directory"
     except Exception as exc:
         return f"Error listing directory: {exc}"
@@ -294,16 +353,27 @@ async def search_files(directory: str, pattern: str) -> str:
     """Search for files matching a glob pattern inside a directory."""
     try:
         base = _safe_path(directory)
+    except SensitivePathError as exc:
+        return str(exc)
+    try:
         if not base.is_dir():
             return f"Not a directory: {directory}"
 
         matches: list[str] = []
         for root, dirs, files in os.walk(base):
-            # Skip hidden and common noise directories
-            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in {"node_modules", "__pycache__", ".git", "venv", ".venv"}]
+            # Skip hidden + noise directories AND sensitive ones
+            dirs[:] = [
+                d for d in dirs
+                if not d.startswith(".")
+                and d not in {"node_modules", "__pycache__", ".git", "venv", ".venv"}
+                and d.lower() not in _SENSITIVE_NAMES
+            ]
             for fname in files:
                 if fnmatch.fnmatch(fname.lower(), pattern.lower()):
-                    rel = Path(root).relative_to(base) / fname
+                    full = Path(root) / fname
+                    if _is_sensitive(full):
+                        continue
+                    rel = full.relative_to(base)
                     matches.append(str(rel))
                     if len(matches) >= 50:
                         break
@@ -326,7 +396,8 @@ async def send_notification(title: str, message: str) -> str:
     try:
         # Try plyer first (cross-platform)
         from plyer import notification  # noqa: PLC0415
-        await asyncio.get_event_loop().run_in_executor(
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
             None,
             lambda: notification.notify(
                 title=title,
@@ -337,21 +408,35 @@ async def send_notification(title: str, message: str) -> str:
         )
         return f"Notification sent: '{title}'"
     except Exception:
-        # Fallback: PowerShell toast on Windows
+        # Fallback: PowerShell toast on Windows.
+        # Security: title/message are XML-escaped, then the entire script is
+        # base64-encoded and passed via -EncodedCommand so neither the user
+        # nor the LLM can inject PowerShell tokens.
         try:
-            ps_cmd = (
-                f"[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime] | Out-Null;"
-                f"$t = [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom, ContentType=WindowsRuntime]::new();"
-                f'$t.LoadXml(\'<toast><visual><binding template="ToastText02"><text id="1">{title}</text><text id="2">{message}</text></binding></visual></toast>\');'
-                f"[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('VERA').Show([Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType=WindowsRuntime]::new($t))"
+            safe_title = xml_escape(title)[:200]
+            safe_message = xml_escape(message)[:1000]
+            xml_payload = (
+                f'<toast><visual><binding template="ToastText02">'
+                f'<text id="1">{safe_title}</text>'
+                f'<text id="2">{safe_message}</text>'
+                f'</binding></visual></toast>'
             )
+            ps_script = (
+                "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime] | Out-Null;"
+                "$t = [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom, ContentType=WindowsRuntime]::new();"
+                f'$t.LoadXml({json.dumps(xml_payload)});'
+                "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('VERA').Show("
+                "[Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType=WindowsRuntime]::new($t))"
+            )
+            encoded = base64.b64encode(ps_script.encode("utf-16-le")).decode("ascii")
             proc = await asyncio.create_subprocess_exec(
-                "powershell", "-WindowStyle", "Hidden", "-Command", ps_cmd,
+                "powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
+                "-EncodedCommand", encoded,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
             )
             await proc.wait()
-            return f"Notification sent: '{title}'"
+            return f"Notification sent: '{title[:80]}'"
         except Exception as exc:
             return f"Could not send notification: {exc}"
 
@@ -387,12 +472,7 @@ TOOL_DEFINITIONS: list[dict] = [
         "type": "function",
         "function": {
             "name": "web_search",
-            "description": (
-                "Search the web for current information, news, facts, or anything "
-                "that may have changed after your training cutoff. Use this whenever "
-                "the user asks about recent events, current prices, live data, or "
-                "anything you are not certain about."
-            ),
+            "description": "Search the web (DuckDuckGo). Use for current events, recent news, anything past your training cutoff.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -409,11 +489,7 @@ TOOL_DEFINITIONS: list[dict] = [
         "type": "function",
         "function": {
             "name": "get_weather",
-            "description": (
-                "Get the current weather conditions and tomorrow's forecast for any "
-                "city or location. Use this when the user asks about weather, "
-                "temperature, rain, wind, or outdoor conditions."
-            ),
+            "description": "Get current weather + tomorrow's forecast for a city/location.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -430,11 +506,7 @@ TOOL_DEFINITIONS: list[dict] = [
         "type": "function",
         "function": {
             "name": "wikipedia_summary",
-            "description": (
-                "Look up a factual summary about a person, place, concept, event, "
-                "or any topic on Wikipedia. Good for definitions, historical facts, "
-                "scientific concepts, and biographical information."
-            ),
+            "description": "Look up a Wikipedia summary for a person/place/concept/event.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -451,11 +523,7 @@ TOOL_DEFINITIONS: list[dict] = [
         "type": "function",
         "function": {
             "name": "get_datetime",
-            "description": (
-                "Get the precise current date, time, day of week, and week number. "
-                "Use this when the user asks what time or day it is, or when you "
-                "need an accurate timestamp for scheduling."
-            ),
+            "description": "Get current date/time/weekday/week-number in a timezone.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -472,12 +540,7 @@ TOOL_DEFINITIONS: list[dict] = [
         "type": "function",
         "function": {
             "name": "store_memory",
-            "description": (
-                "Permanently store a fact, preference, or routine about the user "
-                "for future recall. Use this when the user states something important "
-                "about themselves, their preferences, routines, or when they explicitly "
-                "ask you to remember something."
-            ),
+            "description": "Store a fact/preference/routine about the user for future recall.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -487,7 +550,7 @@ TOOL_DEFINITIONS: list[dict] = [
                     },
                     "kind": {
                         "type": "string",
-                        "enum": ["preference", "routine", "fact", "summary"],
+                        "enum": ["preference", "routine", "fact", "summary", "commitment"],
                         "description": "Category of memory.",
                     },
                 },
@@ -499,10 +562,7 @@ TOOL_DEFINITIONS: list[dict] = [
         "type": "function",
         "function": {
             "name": "read_file",
-            "description": (
-                "Read the contents of a local file on the user's computer. "
-                "Use this when the user asks you to look at, analyze, or summarize a file."
-            ),
+            "description": "Read a local file on the user's computer.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -546,10 +606,7 @@ TOOL_DEFINITIONS: list[dict] = [
         "type": "function",
         "function": {
             "name": "send_notification",
-            "description": (
-                "Send a desktop notification/toast to the user's screen. "
-                "Use this for reminders, alerts, or important updates that need immediate attention."
-            ),
+            "description": "Send a desktop toast notification.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -582,22 +639,370 @@ TOOL_DEFINITIONS: list[dict] = [
             },
         },
     },
+    # ── Calendar ──────────────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "get_agenda",
+            "description": "Get the user's upcoming Google Calendar events for the next N days.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "days": {"type": "integer", "description": "Days ahead to look (default 1, max 30)."},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_event",
+            "description": "Search upcoming calendar events by keyword. Returns event IDs you can use with delete_event.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Keyword to search."},
+                    "days": {"type": "integer", "description": "Days ahead to search (default 14)."},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_event",
+            "description": "Create a new Google Calendar event.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "summary": {"type": "string", "description": "Event title."},
+                    "start_iso": {"type": "string", "description": "ISO 8601 start time, e.g. '2026-04-26T14:00:00+02:00'."},
+                    "end_iso": {"type": "string", "description": "Optional ISO 8601 end time. Defaults to start + 1 hour."},
+                    "description": {"type": "string", "description": "Optional event details."},
+                    "location": {"type": "string", "description": "Optional location."},
+                },
+                "required": ["summary", "start_iso"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "delete_event",
+            "description": "Delete (cancel) a Google Calendar event by ID. Goes to trash, recoverable for 30 days.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "event_id": {"type": "string", "description": "Event ID from find_event."},
+                },
+                "required": ["event_id"],
+            },
+        },
+    },
+    # ── Gmail ─────────────────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "list_emails",
+            "description": "List Gmail emails. query examples: 'is:unread', 'from:x', 'newer_than:1d'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Gmail search query (default 'in:inbox')."},
+                    "limit": {"type": "integer", "description": "Max emails (default 10, max 50)."},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_email",
+            "description": "Fetch the full content of one email by its ID (from list_emails).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message_id": {"type": "string", "description": "Email message ID."},
+                },
+                "required": ["message_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "send_email",
+            "description": "Send a new email. Use after explicit user confirmation of recipient + content.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "to": {"type": "string", "description": "Recipient email address."},
+                    "subject": {"type": "string", "description": "Email subject."},
+                    "body": {"type": "string", "description": "Email body (plain text)."},
+                },
+                "required": ["to", "subject", "body"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "trash_email",
+            "description": "Move an email to Trash. Recoverable for 30 days from Gmail's Trash folder.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message_id": {"type": "string", "description": "Email message ID to trash."},
+                },
+                "required": ["message_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mark_as_read",
+            "description": "Mark an email as read (removes the UNREAD label).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message_id": {"type": "string", "description": "Email message ID."},
+                },
+                "required": ["message_id"],
+            },
+        },
+    },
+    # ── Spotify ───────────────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "spotify_play",
+            "description": "Play music on Spotify — either resume current playback (no args) or search and play a track/album.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Optional search term, e.g. 'hotel california'. Empty = resume."},
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "spotify_pause",
+            "description": "Pause Spotify playback.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "spotify_skip",
+            "description": "Skip to the next Spotify track.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "spotify_now_playing",
+            "description": "Get the currently playing Spotify track (or 'nothing playing').",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "spotify_queue",
+            "description": "Search for a track and add it to the Spotify playback queue.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Track to queue, e.g. 'bohemian rhapsody'."},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    # ── Maps ──────────────────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "open_url",
+            "description": "Open any URL in the user's browser (or default app on phone). Use sparingly.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "Full URL starting with http(s)://, geo:, tel:, or mailto:"},
+                },
+                "required": ["url"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "maps_directions",
+            "description": "Open Google Maps with a directions route. Works on phone (deep-link to Maps app) and PC (browser tab).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "origin": {"type": "string", "description": "Start address or place. Use 'My Location' for current."},
+                    "destination": {"type": "string", "description": "End address or place."},
+                    "mode": {"type": "string", "enum": ["driving", "walking", "bicycling", "transit"], "description": "Travel mode."},
+                },
+                "required": ["origin", "destination"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "maps_search",
+            "description": "Open Google Maps with a place/business search.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "What to search for, e.g. 'pizza near me' or 'IKEA Helsingborg'."},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_route",
+            "description": "Get distance + duration for a route (no browser, just info). Use when user asks 'how far' / 'how long'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "origin": {"type": "string", "description": "Start address or place."},
+                    "destination": {"type": "string", "description": "End address or place."},
+                    "mode": {"type": "string", "enum": ["driving", "walking", "cycling"], "description": "Travel mode."},
+                },
+                "required": ["origin", "destination"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "nearby_places",
+            "description": "Find places matching a name/category, optionally near a location. Returns text list, no browser.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Place type or name, e.g. 'pharmacy', 'pizza'."},
+                    "near": {"type": "string", "description": "Optional location to bias the search."},
+                    "limit": {"type": "integer", "description": "Max results (default 5)."},
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    # ── Utility ───────────────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "convert_currency",
+            "description": "Convert amount between currencies (ECB rates, fiat only, no crypto).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "amount": {"type": "number", "description": "Amount to convert."},
+                    "from_currency": {"type": "string", "description": "3-letter ISO code, e.g. 'USD'."},
+                    "to_currency": {"type": "string", "description": "3-letter ISO code, e.g. 'SEK'."},
+                },
+                "required": ["amount", "from_currency", "to_currency"],
+            },
+        },
+    },
+    # ── News ──────────────────────────────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "get_news",
+            "description": "Fetch top news headlines via NewsAPI. Prefer over web_search for news.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topic": {"type": "string", "description": "Optional search topic. Empty = top headlines."},
+                    "country": {"type": "string", "description": "2-letter country code for top headlines (default 'us'). Ignored if topic given."},
+                    "limit": {"type": "integer", "description": "Number of headlines (default 8, max 20)."},
+                },
+                "required": [],
+            },
+        },
+    },
 ]
 
 # ---------------------------------------------------------------------------
 # Tool registry — maps name → coroutine function
 # ---------------------------------------------------------------------------
 
+# Lazy imports inside the registry dict to keep startup fast and avoid pulling
+# Google libs / spotipy if those features aren't being used yet.
+from backend.app.services.calendar_tools import (  # noqa: E402
+    create_event, delete_event, find_event, get_agenda,
+)
+from backend.app.services.gmail_tools import (  # noqa: E402
+    list_emails, mark_as_read, read_email, send_email, trash_email,
+)
+from backend.app.services.maps_tools import (  # noqa: E402
+    get_route, maps_directions, maps_search, nearby_places, open_url,
+)
+from backend.app.services.news_tools import get_news  # noqa: E402
+from backend.app.services.spotify_tools import (  # noqa: E402
+    spotify_now_playing, spotify_pause, spotify_play, spotify_queue, spotify_skip,
+)
+from backend.app.services.utility_tools import convert_currency  # noqa: E402
+
+
 TOOL_REGISTRY: dict[str, object] = {
+    # Web
     "web_search": web_search,
     "get_weather": get_weather,
     "wikipedia_summary": wikipedia_summary,
     "get_datetime": get_datetime,
+    "get_news": get_news,
+    # Memory
     "store_memory": store_memory,
+    # Files
     "read_file": read_file,
     "list_directory": list_directory,
     "search_files": search_files,
+    # System
     "send_notification": send_notification,
     "get_clipboard": get_clipboard,
     "set_clipboard": set_clipboard,
+    # Calendar
+    "get_agenda": get_agenda,
+    "find_event": find_event,
+    "create_event": create_event,
+    "delete_event": delete_event,
+    # Gmail
+    "list_emails": list_emails,
+    "read_email": read_email,
+    "send_email": send_email,
+    "trash_email": trash_email,
+    "mark_as_read": mark_as_read,
+    # Spotify
+    "spotify_play": spotify_play,
+    "spotify_pause": spotify_pause,
+    "spotify_skip": spotify_skip,
+    "spotify_now_playing": spotify_now_playing,
+    "spotify_queue": spotify_queue,
+    # Maps
+    "open_url": open_url,
+    "maps_directions": maps_directions,
+    "maps_search": maps_search,
+    "get_route": get_route,
+    "nearby_places": nearby_places,
+    # Utility
+    "convert_currency": convert_currency,
 }

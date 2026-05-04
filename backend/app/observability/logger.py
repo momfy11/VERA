@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from backend.app.core.config import settings
@@ -42,8 +43,10 @@ def configure_logging() -> None:
     root.addHandler(console)
     root.addHandler(backend_file)
 
-    # ── frontend.log — appended, never wiped by the backend ──────────────────
-    frontend_file = logging.FileHandler(FRONTEND_LOG, mode="a", encoding="utf-8")
+    # ── frontend.log — rotated at 10 MB, keep last 5 backups ─────────────────
+    frontend_file = RotatingFileHandler(
+        FRONTEND_LOG, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8",
+    )
     frontend_file.setLevel(logging.DEBUG)
     frontend_file.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt=_DATE_FMT))
     frontend_logger.addHandler(frontend_file)

@@ -32,6 +32,12 @@ type VoiceSessionState = {
   interimTranscript: string;
   start: () => Promise<void>;
   stop: () => void;
+  /**
+   * Temporarily ignore STT results — used to prevent VERA's own TTS from
+   * being transcribed and looped back as a user message.
+   * Pass true when TTS starts, false (after a small grace period) when it ends.
+   */
+  setMuted: (muted: boolean) => void;
 };
 
 // Browser SpeechRecognition shim (not yet in all TypeScript lib defs)
@@ -65,6 +71,12 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
   // STT refs
   const recognitionRef = useRef<any>(null);
   const sttRunningRef = useRef(false);
+  const sttErrorCountRef = useRef(0);
+  // Drop STT results while TTS is speaking (prevents echo feedback loop)
+  const mutedRef = useRef(false);
+  const setMuted = useCallback((muted: boolean) => {
+    mutedRef.current = muted;
+  }, []);
 
   const updateStatus = useCallback(
     (next: VoiceStatus) => {
@@ -98,6 +110,7 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
       try { recognitionRef.current.stop(); } catch { /* ignore */ }
     }
     sttRunningRef.current = false;
+    sttErrorCountRef.current = 0;
     setInterimTranscript("");
 
     updateStatus("idle");
@@ -157,13 +170,33 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
 
       // ── STT setup ────────────────────────────────────────────────────
       if (SpeechRecognitionImpl && onSpeechFinal) {
+        // Defensive: if a previous recognition instance is still alive, stop it
+        if (recognitionRef.current && sttRunningRef.current) {
+          try { recognitionRef.current.stop(); } catch { /* ignore */ }
+        }
         const recognition = new SpeechRecognitionImpl();
         recognitionRef.current = recognition;
         recognition.continuous = true;
         recognition.interimResults = true;
         recognition.lang = "en-US";
 
+        recognition.onerror = (event: any) => {
+          // "no-speech" and "aborted" are normal continuous-mode events
+          if (event.error === "no-speech" || event.error === "aborted") return;
+          sttErrorCountRef.current += 1;
+          if (sttErrorCountRef.current <= 3) {
+            setError(`Speech recognition: ${event.error}`);
+          }
+        };
+
         recognition.onresult = (event: any) => {
+          sttErrorCountRef.current = 0; // reset error count on any successful result
+          // Drop everything while TTS is speaking — prevents the echo feedback loop
+          // where VERA's voice gets transcribed and looped back as a user message.
+          if (mutedRef.current) {
+            setInterimTranscript("");
+            return;
+          }
           let interim = "";
           for (let i = event.resultIndex; i < event.results.length; i++) {
             const result = event.results[i];
@@ -180,21 +213,16 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
           setInterimTranscript(interim);
         };
 
-        recognition.onerror = (event: any) => {
-          // "no-speech" and "aborted" are normal — don't show as errors
-          if (event.error !== "no-speech" && event.error !== "aborted") {
-            setError(`Speech recognition error: ${event.error}`);
-          }
-        };
-
         recognition.onend = () => {
           sttRunningRef.current = false;
-          // Auto-restart while VAD is still running
-          if (analyserRef.current) {
+          // Auto-restart only while VAD is still active and error count is low
+          if (analyserRef.current && sttErrorCountRef.current < 5) {
             try {
               recognition.start();
               sttRunningRef.current = true;
-            } catch { /* ignore */ }
+            } catch { /* recognition already starting */ }
+          } else if (sttErrorCountRef.current >= 5) {
+            setError("Speech recognition stopped after repeated errors.");
           }
         };
 
@@ -216,5 +244,6 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
     interimTranscript,
     start,
     stop,
+    setMuted,
   };
 }

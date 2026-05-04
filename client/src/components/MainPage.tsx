@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { IntegrationsPanel } from "./IntegrationsPanel";
 import { SettingsPanel } from "./SettingsPanel";
 import { StatusPill } from "./StatusPill";
 import { SuggestionsPanel } from "./SuggestionsPanel";
 import type { ChatMessage } from "../lib/types";
+import { useInstallPrompt } from "../lib/useInstallPrompt";
+import { useTTS } from "../lib/useTTS";
 import { useVoiceSession } from "../lib/useVoiceSession";
+import { useWakeWord } from "../lib/useWakeWord";
 
 type MainPageProps = {
   sessionStatus: "connecting" | "active";
@@ -11,6 +17,7 @@ type MainPageProps = {
   ws: WebSocket | null;
   messages: ChatMessage[];
   isTyping: boolean;
+  thinkingText: string | null;
   onStop: () => void;
   onSend: (text: string) => void;
   onVadStart: () => void;
@@ -23,6 +30,7 @@ export function MainPage({
   ws,
   messages,
   isTyping,
+  thinkingText,
   onStop,
   onSend,
   onVadStart,
@@ -30,14 +38,47 @@ export function MainPage({
 }: MainPageProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [input, setInput] = useState("");
+  const [handsFree, setHandsFree] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const sessionActive = sessionStatus === "active";
+  const { canInstall, installed, isIOS, promptInstall } = useInstallPrompt();
 
-  const { status: voiceStatus, error: voiceError, isRunning, interimTranscript, start, stop } = useVoiceSession({
+  const { status: voiceStatus, error: voiceError, isRunning, interimTranscript, start, stop, setMuted } = useVoiceSession({
     onVadStart,
     onVadEnd,
     onSpeechFinal: (text) => {
       if (sessionActive) onSend(text);
+    },
+  });
+
+  // Speak VERA's replies while voice mode is active.
+  // Mute STT during TTS so VERA's voice doesn't echo back as a user message.
+  const { speak: speakNow } = useTTS({
+    enabled: isRunning,
+    messages,
+    onSpeakStart: () => setMuted(true),
+    onSpeakEnd: () => setMuted(false),
+  });
+
+  // Speak the thinking ack the moment it arrives so the user knows VERA is
+  // working before the full reply lands. Queues naturally before the reply.
+  const lastThinkingRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isRunning || !thinkingText) return;
+    if (thinkingText === lastThinkingRef.current) return;
+    lastThinkingRef.current = thinkingText;
+    speakNow(thinkingText);
+  }, [thinkingText, isRunning, speakNow]);
+
+  // Wake-word listener — runs even when voice session is OFF so user can
+  // hands-free trigger VERA. Disable while voice session is already active so
+  // Porcupine and our STT don't fight over the mic.
+  const wakeEnabled = handsFree && sessionActive && !isRunning;
+  const wake = useWakeWord({
+    enabled: wakeEnabled,
+    onDetected: () => {
+      // Start the voice session so STT picks up the user's actual command
+      void start();
     },
   });
 
@@ -72,6 +113,36 @@ export function MainPage({
             value={voiceStatus === "speaking" ? "Speaking" : voiceStatus === "listening" ? "Listening" : "Off"}
             tone={voiceStatus === "speaking" ? "good" : "warn"}
           />
+          {sessionActive && (
+            <button
+              type="button"
+              className={`button ${handsFree ? "" : "ghost"}`}
+              onClick={() => setHandsFree(!handsFree)}
+              title={
+                wake.status === "listening"
+                  ? "Listening for wake word — say it to activate VERA"
+                  : wake.status === "error"
+                    ? `Wake word error: ${wake.error}`
+                    : "Toggle hands-free mode (wake word)"
+              }
+            >
+              {handsFree ? "Hands-free: on" : "Hands-free"}
+              {wake.status === "listening" && " 👂"}
+            </button>
+          )}
+          {canInstall && !installed && (
+            <button
+              type="button"
+              className="button ghost"
+              onClick={() => void promptInstall()}
+              title="Install VERA as an app"
+            >
+              Install
+            </button>
+          )}
+          {isIOS && !installed && (
+            <span className="hint-text" title="iOS: Share → Add to Home Screen">📲</span>
+          )}
           <button
             type="button"
             className="icon-btn"
@@ -93,13 +164,19 @@ export function MainPage({
         {messages.map((msg) => (
           <div className={`chat-bubble ${msg.role}`} key={msg.id}>
             <strong>{msg.role === "user" ? "You" : "VERA"}</strong>
-            <p>{msg.text}</p>
+            {msg.role === "assistant" ? (
+              <div className="markdown-body">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
+              </div>
+            ) : (
+              <p>{msg.text}</p>
+            )}
           </div>
         ))}
         {isTyping && (
-          <div className="chat-bubble assistant">
+          <div className="chat-bubble assistant thinking-bubble">
             <strong>VERA</strong>
-            <p>···</p>
+            <p className="thinking-text">{thinkingText ?? "···"}</p>
           </div>
         )}
         <div ref={bottomRef} />
@@ -110,6 +187,12 @@ export function MainPage({
           <span className={`voice-dot ${voiceStatus}`} />
           <span>{voiceStatus.toUpperCase()}</span>
         </div>
+        {handsFree && wake.status === "listening" && !isRunning && (
+          <span className="hint-text">Wake word listening…</span>
+        )}
+        {handsFree && wake.status === "error" && (
+          <span className="error-text">Wake: {wake.error}</span>
+        )}
         {interimTranscript && (
           <span className="voice-interim">"{interimTranscript}"</span>
         )}
@@ -163,6 +246,7 @@ export function MainPage({
               </button>
             </div>
             <div className="settings-drawer-body">
+              <IntegrationsPanel sessionToken={sessionToken} />
               <SuggestionsPanel sessionToken={sessionToken} ws={ws} />
               <SettingsPanel />
             </div>
