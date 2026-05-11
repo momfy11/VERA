@@ -1,101 +1,173 @@
-"""Development setup and first-run instructions."""
-
 # VERA Development Environment
 
 ## Prerequisites
 
-- Python 3.9+
-- Node.js 18+
-- PostgreSQL 13+
+- **Python 3.11+** (3.10 might work, untested)
+- **Node.js 20+** (Vite 8 requires it)
+- **Docker Desktop** (for Postgres + pgvector) — or local Postgres 16 with pgvector built from source
+- **Chrome or Edge** (Web Speech API for STT, TTS, and wake word)
 
 ## Quick Start
 
-### 1. Backend Setup
+### 1. Backend setup
 
 ```bash
-cd backend
-cp .env.example .env
-# Edit .env with your Postgres credentials
-pip install -r requirements.txt
+# From repo root
+python -m venv vera
+vera/Scripts/pip install -r backend/requirements.txt
 ```
 
-Initialize the database (PostgreSQL required).
-
-**Installation required:** You must have PostgreSQL 13+ installed on your system.
-
-- **Windows**: Download from https://www.postgresql.org/download/windows/
-- **Mac**: `brew install postgresql@15`
-- **Linux**: `apt install postgresql postgresql-contrib`
-
-Once PostgreSQL is running locally on port 5432, from the **repo root**:
+### 2. Postgres + pgvector via Docker
 
 ```bash
-python backend/init_db.py
+docker compose up -d postgres
+# Container "vera-pgvector" on host port 5433 with pgvector extension preinstalled
 ```
 
-This script will:
-1. Create the database (if it doesn't exist)
-2. Create all tables and extensions
-3. Confirm success
-
-**Note:** Make sure `.env` has the correct database URL (default is `postgresql+psycopg2://vera:vera@localhost:5432/vera`).
-
-Start the API:
+### 3. Configure backend secrets
 
 ```bash
-uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
+cp backend/.env.example backend/.env
 ```
 
-✅ API runs at `http://localhost:8000`  
-✅ Health check: `GET http://localhost:8000/api/health`
+Minimum required in `backend/.env`:
 
-### 2. Client Setup
+```
+DATABASE_URL=postgresql+psycopg2://vera:vera@localhost:5433/vera
+LLM_PROVIDER=gemini
+LLM_MODEL=gemini-2.5-flash
+GEMINI_API_KEY=<free at https://aistudio.google.com/app/apikey>
+ALLOWED_ORIGINS=http://localhost:5173
+```
+
+### 4. Bootstrap schema
+
+```bash
+vera/Scripts/python -m backend.init_db
+PYTHONIOENCODING=utf-8 vera/Scripts/python -m backend.scripts.enable_pgvector
+```
+
+The `PYTHONIOENCODING=utf-8` works around Windows cp1252 console limitation
+when scripts print ✓/→ glyphs.
+
+### 5. Start backend
+
+```bash
+vera/Scripts/uvicorn backend.app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Health: `curl http://localhost:8000/api/health` → `{"status":"ok"}`.
+
+### 6. Start frontend
 
 ```bash
 cd client
-npm install
+npm install --legacy-peer-deps
 npm run dev
 ```
 
-✅ UI runs at `http://localhost:5173`
+Open `http://localhost:5173` in Chrome or Edge.
 
-### 3. Test the flow
+### 7. Sign in
 
-1. Open `http://localhost:5173` in a browser
-2. Open backend console to see logs
-3. Try to login / create a session
-4. Check database for new user entry
+- **"Sign in with Google"** — opens an OAuth tab that auto-closes on success. Needs `backend/credentials/client_secret_*.json` present
+- OR **"Start with email"** — fallback; any email works (no password)
 
----
+### 8. (Optional) Seed demo data
 
-## Database Notes
+```bash
+vera/Scripts/python -m backend.scripts.demo_reset
+```
 
-- The SQL file `backend/app/db/migrations/0001_init.sql` is the initial schema reference.
-- `backend/init_db.py` creates the database (if missing) and creates tables from models.
-- For proper migrations later, we can integrate Alembic or a migration runner.
+## Whole-stack Docker (alternative)
 
----
+Skip steps 4-7:
 
-## CI/CD and Deployment
+```bash
+docker compose up -d --build
+```
 
-- Both backend and client are in **monorepo root**
-- Deployment can be done with Docker or systemd services
-- Benchmarks are in `benchmarks/` and run separately
+Logs: `docker compose logs -f`.
 
----
+## Project structure
 
-## Feature Flags and `.env`
+| Path | Purpose |
+|---|---|
+| `backend/` | FastAPI app, services, scripts |
+| `client/` | React PWA |
+| `docs/` | Design + setup docs |
+| `logs/` | Runtime logs (`backend.log` resets on restart, `frontend.log` rotates 10MB×5) |
+| `docker-compose.yml` | Local 3-service stack |
+| `docker-compose.prod.yml` | Caddy + HTTPS overlay |
+| `Caddyfile` | Reverse proxy config |
+| `.env.production.example` | Public build-time deploy vars |
 
-All configuration is in `.env` files (backend only for now; client can read from API).
+## Useful commands
 
-Never commit secrets. Use `.env.example` as template.
+```bash
+# Backend smoke test
+vera/Scripts/python -c "from backend.app.services.tools import TOOL_REGISTRY; print(len(TOOL_REGISTRY))"
 
----
+# Frontend type check
+cd client && npx tsc --noEmit
 
-## Next Steps
+# Alembic — make a migration
+cd backend && ../vera/Scripts/alembic revision --autogenerate -m "msg"
+cd backend && ../vera/Scripts/alembic upgrade head
 
-After Sprint 1 is working:
-- Implement agent orchestrator (Sprint 4)
-- Add voice capture and WebSocket streaming (Sprint 3)
-- Add policy gates (Sprint 4)
-- Add embeddings + memory (Sprint 4)
+# Tail last 30 backend log lines
+tail -n 30 logs/backend.log
+```
+
+## Env vars reference
+
+### Backend (`backend/.env`)
+
+| Var | Purpose |
+|---|---|
+| `LLM_PROVIDER` | `gemini` / `groq` / `ollama` / `mistral` |
+| `LLM_MODEL` | model name per provider |
+| `GEMINI_API_KEY` | required if provider=gemini |
+| `GROQ_API_KEY` | required if provider=groq |
+| `DATABASE_URL` | SQLAlchemy URL |
+| `ALLOWED_ORIGINS` | comma-separated CORS allowlist (default `http://localhost:5173`) |
+| `LOG_LEVEL` | DEBUG/INFO/WARNING/ERROR (default INFO) |
+| `VERA_FS_ROOT` | base dir for file tools (default `$HOME`); set to `/app/sandbox` in prod |
+| `EMBEDDING_PROVIDER` | `fastembed` (default) / `ollama` / `openai` |
+| `EMBEDDING_MODEL` | model name |
+| `EMBEDDING_DIM` | must match column dim in DB (default 384) |
+| `OLLAMA_URL` | for embeddings or LLM provider |
+| `OPENAI_API_KEY` | for embeddings only |
+| `SPOTIFY_CLIENT_ID/SECRET` | optional |
+| `NEWS_API_KEY` | optional |
+| `SECRET_KEY` | session signing (`python -c "import secrets; print(secrets.token_hex(32))"`) |
+
+### Frontend (`client/.env`)
+
+| Var | Purpose |
+|---|---|
+| `VITE_API_BASE` | REST base (default `http://localhost:8000/api`) |
+| `VITE_WS_BASE` | WS base (default `ws://localhost:8000`) |
+| `VITE_WAKE_PHRASES` | comma-separated wake-word phrases (default `hey vera,vera`) |
+
+## Documentation index
+
+- `docs/MANUAL_SETUP.md` — credentials, OAuth, pgvector, cloud deploy
+- `docs/POC_PLAN.md` — 2-week sprint plan
+- `docs/COPILOT_HANDOFF.md` — full state for AI handoff
+- `docs/VERA_ROADMAP.md` — phased feature roadmap
+- `docs/WEBSOCKET_API.md` — WS event schema + REST routes
+- `docs/CODE_REVIEW.md` — security audit + open issues
+- `docs/VERA_requests.md` — VERA's own wishlist (raw conversation)
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| CORS blocked at login | `.env` `ALLOWED_ORIGINS` wrong (duplicate keys take last value — see MANUAL_SETUP warning) |
+| `Unknown PG numeric type: 16599` | Restart backend — pgvector type imported via `pgvector.sqlalchemy.Vector` |
+| Alembic `InsufficientPrivilege` on ALTER | Tables owned by `postgres`, REASSIGN to `vera` (MANUAL_SETUP §12) |
+| Web Speech doesn't work | Use Chrome or Edge (Firefox lacks SpeechRecognition) |
+| Google token expires weekly | OAuth app in test mode — click Reconnect in Integrations panel |
+| Spotify control returns 403 | App owner needs Premium subscription (Spotify policy) |
+| Backend fails on startup with `import.meta.env` TS error | That's frontend — set VS Code interpreter to `vera/Scripts/python.exe` |

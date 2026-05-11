@@ -1,22 +1,55 @@
-version: "3.8"
-
 services:
   postgres:
     image: pgvector/pgvector:pg16
     environment:
-      POSTGRES_USER: vera
-      POSTGRES_PASSWORD: vera
-      POSTGRES_DB: vera
+      POSTGRES_USER: ${POSTGRES_USER:-vera}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-vera}
+      POSTGRES_DB: ${POSTGRES_DB:-vera}
     ports:
-      - "5432:5432"
+      - "5433:5432"   # 5433 to avoid clash with host Postgres on 5432
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./backend/app/db/migrations/0001_init.sql:/docker-entrypoint-initdb.d/0001_init.sql
+      - vera_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U vera" ]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vera}"]
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    env_file:
+      - ./backend/.env
+    environment:
+      # Override DB URL so backend talks to docker postgres, not host's
+      DATABASE_URL: postgresql+psycopg2://vera:vera@postgres:5432/vera
+    volumes:
+      - ./backend/credentials:/app/backend/credentials
+      - ./logs:/app/logs
+      - vera_fastembed_cache:/app/.fastembed_cache
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+      args:
+        VITE_API_BASE: ${PUBLIC_API_BASE:-http://localhost:8000/api}
+        VITE_WS_BASE: ${PUBLIC_WS_BASE:-ws://localhost:8000}
+        VITE_WAKE_PHRASES: ${VITE_WAKE_PHRASES:-hey vera,vera}
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
 
 volumes:
-  postgres_data:
+  vera_pgdata:
+  vera_fastembed_cache:

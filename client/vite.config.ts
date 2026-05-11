@@ -46,10 +46,15 @@ export default defineConfig({
     }),
   ],
   server: {
+    // host: true binds to 0.0.0.0 so the dev server is reachable from
+    // other devices on the LAN (e.g. your phone). Without this Vite only
+    // listens on 127.0.0.1 and the phone gets ECONNREFUSED.
+    host: true,
     port: 5173,
   },
-  // Vite does not bundle Porcupine's WASM — point its loader at /node_modules
-  optimizeDeps: {
-    exclude: ["@picovoice/porcupine-web", "@picovoice/web-voice-processor"],
+  preview: {
+    // Same reasoning for `npm run preview` (built bundle).
+    host: true,
+    port: 4173,
   },
 });

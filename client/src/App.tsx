@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { LoginPage } from "./components/LoginPage";
 import { MainPage } from "./components/MainPage";
+import { ToastContainer, pushToast } from "./components/Toasts";
 import { login } from "./lib/api";
 import { initLogger } from "./lib/logger";
 import type { ChatMessage } from "./lib/types";
@@ -26,6 +27,7 @@ export default function App() {
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [thinkingText, setThinkingText] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<import("./components/ApprovalModal").PendingAction | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: "welcome",
@@ -104,6 +106,17 @@ export default function App() {
           return;
         }
 
+        // Destructive tool gate — show modal, user clicks Allow/Deny
+        if (message.type === "agent.action_pending" && typeof message.payload.action_id === "string") {
+          setPendingAction(message.payload as unknown as import("./components/ApprovalModal").PendingAction);
+          return;
+        }
+        if (message.type === "agent.action_resolved") {
+          // Backend timed out or already-resolved confirmation — close modal
+          setPendingAction(null);
+          return;
+        }
+
         // Maps / open-URL events from VERA tools — open in new tab/Maps app
         if (message.type === "agent.open_url" && typeof message.payload.url === "string") {
           const url = message.payload.url as string;
@@ -121,9 +134,14 @@ export default function App() {
             setSessionStatus("error");
             setSessionError("Session rejected. Please log in again.");
           } else if (msg === "rate_limited") {
-            setSessionError("You're sending messages too fast — slow down.");
+            pushToast("warn", "You're sending messages too fast — slow down.");
+          } else if (msg === "message_too_long") {
+            pushToast("warn", "Message too long (4096 char max).");
+          } else if (msg === "backend_init_failed") {
+            pushToast("error", `Backend init failed: ${(message.payload as any).detail ?? ""}`);
           } else {
-            setSessionError(msg);
+            // Quota / network / LLM provider errors all surface here
+            pushToast("error", msg);
           }
         }
       } catch {
@@ -191,26 +209,40 @@ export default function App() {
 
   if (sessionStatus === "idle" || sessionStatus === "error") {
     return (
-      <LoginPage
-        status={sessionStatus}
-        onStart={handleStartSession}
-        error={sessionError}
-      />
+      <>
+        <LoginPage
+          status={sessionStatus}
+          onStart={handleStartSession}
+          onSessionToken={(token) => {
+            window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+            setSessionToken(token);
+            setSessionStatus("connecting");
+            setSessionError(null);
+          }}
+          error={sessionError}
+        />
+        <ToastContainer />
+      </>
     );
   }
 
   return (
-    <MainPage
-      sessionStatus={sessionStatus}
-      sessionToken={sessionToken}
-      ws={ws}
-      messages={messages}
-      isTyping={isTyping}
-      thinkingText={thinkingText}
-      onStop={handleStopSession}
-      onSend={handleSendText}
-      onVadStart={handleVadStart}
-      onVadEnd={handleVadEnd}
-    />
+    <>
+      <MainPage
+        sessionStatus={sessionStatus}
+        sessionToken={sessionToken}
+        ws={ws}
+        messages={messages}
+        isTyping={isTyping}
+        thinkingText={thinkingText}
+        pendingAction={pendingAction}
+        onActionResolved={() => setPendingAction(null)}
+        onStop={handleStopSession}
+        onSend={handleSendText}
+        onVadStart={handleVadStart}
+        onVadEnd={handleVadEnd}
+      />
+      <ToastContainer />
+    </>
   );
 }

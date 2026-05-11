@@ -35,14 +35,14 @@ Comprehensive audit covering security, correctness, and architectural concerns.
 |---|----------|----------|-------|---------------|
 | O1 | High | `main.py` | `CORSMiddleware(allow_origins=["*"], allow_credentials=False)` for HTTP. Fine for local dev, dangerous in production. | Read from `ALLOWED_ORIGINS` env var (already in `.env`). |
 | O2 | Medium | `auth.py` | `/api/auth/login` has no rate limit. Brute force / account enumeration possible. | Add per-IP rate limit (5 attempts/min). |
-| O3 | Medium | `tools.py` `read_file` | 512 KB size cap is in KB but compared against `size_kb > 512` correctly. Could still OOM on many large files in one tool round. | Acceptable for now. |
-| O4 | Medium | `observability/logger.py` | No log rotation. `frontend.log` grows unbounded. | Use `RotatingFileHandler` (10 MB × 5 files). |
-| O5 | Medium | Roadmap §1.1 | "Tool calls and results logged to `audit_log`" — not implemented. | Insert into `audit_log` table from `_execute_tool` (capture name, args hash, result length, latency). |
-| O6 | Low | `tools.py` `web_search` | DuckDuckGo Instant Answer API often returns empty — most queries fall through to `duckduckgo_search` package after a wasted HTTP call. | Reorder: try the package first (real search results), fall back to instant API. Or call both in parallel. |
-| O7 | Low | `tools.py` module load | `httpx.AsyncClient` created at import time, never closed. Connection pool leak on reload. | Move to a lazy singleton with explicit `aclose()` on app shutdown. |
-| O8 | Low | `useVoiceSession.ts` | `recognition.lang = "en-US"` hardcoded. | Read from user_settings on backend, send via WS or REST. |
-| O9 | Low | `ws.py` | Messages capped at 4096 chars but JSON parsing happens before size check on raw text — ok in practice but reorder for clarity. | Cosmetic. |
-| O10 | Low | `App.tsx` | `sessionToken` lives only in React state — closing the browser forces re-login, which contradicts the always-on UX goal. | Persist to `localStorage` so VERA reconnects automatically. |
+| O3 | Medium | `tools.py` `read_file` | 512 KB size cap. Could still OOM on many large files in one tool round. | Acceptable for now. |
+| O4 | ✅ FIXED | `observability/logger.py` | ~~No log rotation~~ | `RotatingFileHandler` 10MB × 5 backups |
+| O5 | ✅ FIXED | `orchestrator.py` `_execute_tool` | ~~Tool calls not in audit_log~~ | `_audit_tool_call` writes name + args_hash + latency_ms + result_len + error |
+| O6 | ✅ FIXED | `tools.py` `web_search` | ~~DDG instant answer first wasteful~~ | Reordered: ddgs package first, instant API fallback |
+| O7 | Low | `tools.py` module load | `httpx.AsyncClient` created at import time, never closed | Move to lazy singleton with `aclose()` on lifespan shutdown |
+| O8 | Low | `useVoiceSession.ts` | `recognition.lang = "en-US"` hardcoded | Read from user_settings via WS |
+| O9 | Low | `ws.py` | Messages capped at 4096 chars but JSON parsing happens before size check | Cosmetic |
+| O10 | ✅ FIXED | `App.tsx` | ~~`sessionToken` lives only in React state~~ | Persisted to `localStorage`, restored on mount |
 
 ### Privacy / Security hardening (long term)
 
@@ -55,15 +55,16 @@ Comprehensive audit covering security, correctness, and architectural concerns.
 
 ### Roadmap items still pending (Phase 1)
 
-- [ ] Tool calls audit log (O6 above)
+- [x] Tool calls audit log
 - [ ] Search-enhanced suggestions (Phase 1.5) — scheduler integrates `web_search`
 
 ### Architectural debt
 
-- **No tests.** Zero unit/integration tests in the repo. At minimum, tests for: `_strip_json_fences`, `_is_sensitive`, memory deduplication, tool execution error path.
-- **Manual SQL migrations.** Should adopt Alembic (see `MANUAL_SETUP.md` §12).
-- **No structured logging.** `structlog` is in requirements but not used. Tool calls and LLM responses would benefit from structured fields.
-- **No tracing.** OpenTelemetry would help diagnose latency in the tool-calling loop (LLM call → tool exec → LLM call ...).
+- **No tests.** Zero unit/integration tests in the repo. At minimum, tests for: `_strip_json_fences`, `_is_sensitive`, memory deduplication, tool execution error path, approval-gate timeout path.
+- ✅ ~~Manual SQL migrations~~ — Alembic adopted, head `47ef6902e297`.
+- **No structured logging.** `structlog` in requirements but not used. Tool calls and LLM responses would benefit from structured fields.
+- **No tracing.** OpenTelemetry would help diagnose latency in tool-calling loop.
+- **No CI.** `.github/workflows/` empty.
 
 ---
 
@@ -114,10 +115,21 @@ the public internet), revisit both decisions.
 
 ---
 
-## Summary
+## Summary (updated 2026-05-07)
 
-This review fixed **5 bugs** (1 critical security, 1 high security, 1 medium, 2 correctness) and documented **14 open issues** ranked by severity. The codebase is solid for local single-user dev use. Top three things to address before exposing to a network:
+Initial review fixed 5 bugs + documented 14 open issues. Subsequent passes closed:
+- ✅ O1 CORS from env
+- ✅ O2 Login rate limit
+- ✅ O4 Log rotation
+- ✅ O5 Audit log writes
+- ✅ O6 web_search reorder
+- ✅ O10 localStorage session
+- ✅ Alembic adopted
 
-1. **CORS `allow_origins` from `ALLOWED_ORIGINS` env var** (O1) — the only blocker for safe network exposure
-2. **Login rate limiting** (O2) — prevents brute force / enumeration
-3. **Persist `sessionToken` to localStorage** (O10) — finishes the always-on UX loop so closing the browser doesn't force re-login
+**Remaining for production exposure:**
+1. Sign in with Google replacing email-only auth (currently any email works without verification)
+2. httpx singleton lifecycle (O7)
+3. STT lang configurable (O8)
+4. Per-user token budget alerting (P4)
+5. Tests + CI pipeline (architectural debt)
+6. HTTPS / WSS reverse proxy config (P2)

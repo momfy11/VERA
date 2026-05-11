@@ -39,17 +39,33 @@ def check_pgvector(db) -> bool:
 
 
 def apply_migration(db) -> None:
-    """Apply 0002_pgvector.sql. Idempotent."""
+    """Apply 0002_pgvector.sql. Idempotent.
+
+    Uses raw psycopg2 with autocommit so `CREATE EXTENSION` and DDL each
+    commit individually. SQLAlchemy session's implicit transaction would
+    silently roll back the whole thing if any single DDL hits a permission
+    issue mid-flight.
+    """
+    from backend.app.core.config import settings as _s
+    import psycopg2  # noqa: PLC0415
+
     sql = MIGRATION_SQL.read_text(encoding="utf-8")
     print(f"→ Applying migration {MIGRATION_SQL.name}")
-    # Split on ; for psycopg2 since execute() runs one statement at a time
     statements = [s.strip() for s in sql.split(";") if s.strip() and not s.strip().startswith("--")]
-    for stmt in statements:
-        # Strip leading --comment lines from each statement
-        clean = "\n".join(line for line in stmt.splitlines() if not line.strip().startswith("--"))
-        if clean.strip():
-            db.execute(sql_text(clean))
-    db.commit()
+
+    # Convert SQLAlchemy URL to libpq URL
+    libpq_url = _s.database_url.replace("postgresql+psycopg2://", "postgresql://", 1)
+    raw = psycopg2.connect(libpq_url)
+    raw.autocommit = True
+    cur = raw.cursor()
+    try:
+        for stmt in statements:
+            clean = "\n".join(line for line in stmt.splitlines() if not line.strip().startswith("--"))
+            if clean.strip():
+                cur.execute(clean)
+    finally:
+        cur.close()
+        raw.close()
     print("✓ Migration applied")
 
 

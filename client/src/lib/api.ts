@@ -7,6 +7,20 @@ export type LoginResponse = {
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "http://localhost:8000/api";
 
+export async function loginWithGoogle(): Promise<LoginResponse> {
+  // Backend may take up to 60s on first run while user signs in via popup.
+  // Use AbortController if you need a UI cancel button.
+  const response = await fetch(`${API_BASE}/auth/google`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.detail || "Google sign-in failed");
+  }
+  return response.json();
+}
+
 export async function login(email: string, displayName?: string): Promise<LoginResponse> {
   const response = await fetch(`${API_BASE}/auth/login`, {
     method: "POST",
@@ -58,6 +72,47 @@ export async function googleConnect(sessionToken: string): Promise<void> {
     const data = await response.json().catch(() => ({}));
     throw new Error(data.detail || "Could not start Google authorization");
   }
+}
+
+export async function decideAction(
+  sessionToken: string,
+  actionId: string,
+  decision: "approve" | "reject",
+): Promise<void> {
+  const response = await fetch(`${API_BASE}/actions/${actionId}/${decision}`, {
+    method: "POST",
+    headers: { "X-Session-Token": sessionToken },
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.detail || "Decision failed");
+  }
+}
+
+export type MemoryItem = {
+  id: string;
+  kind: string;
+  text: string;
+  ts: string;
+  source: string | null;
+  confidence: number;
+};
+
+export async function listMemories(sessionToken: string): Promise<MemoryItem[]> {
+  const response = await fetch(`${API_BASE}/memories`, {
+    headers: { "X-Session-Token": sessionToken },
+  });
+  if (!response.ok) throw new Error("Failed to fetch memories");
+  const data = await response.json();
+  return data.items as MemoryItem[];
+}
+
+export async function deleteMemory(sessionToken: string, memoryId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/memories/${memoryId}`, {
+    method: "DELETE",
+    headers: { "X-Session-Token": sessionToken },
+  });
+  if (!response.ok) throw new Error("Failed to delete memory");
 }
 
 export async function googleDisconnect(sessionToken: string): Promise<void> {

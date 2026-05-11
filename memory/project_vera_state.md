@@ -1,52 +1,116 @@
 ---
 name: VERA project current state
-description: Sprint 4 implementation status — what's done, what's stub, what's next
+description: Current implementation status as of 2026-05-10 — POC feature-complete
 type: project
 ---
 
-VERA is a JARVIS-style always-on personal AI assistant (voice + proactive suggestions). Sprint 1-3 infra was done; Sprint 4 brain is now implemented.
+VERA is a JARVIS-style always-on personal AI assistant (voice + proactive
+suggestions + 32 tools). POC is feature-complete locally; cloud deploy
+templates ready (Caddy + Docker Compose). Target POC ship in 2 weeks.
 
-**Why:** User wants a JARVIS-like assistant that can do anything — remember preferences, respond through voice, act proactively.
+**Why:** User wants a JARVIS-like assistant — voice, memory, proactive,
+acts on user's behalf with approval gates.
 
-**How to apply:** When suggesting next steps, prioritize the Sprint 4→5→6 sequence. Don't suggest rearchitecting what's already done.
+**How to apply:** When suggesting next steps, point at `docs/POC_PLAN.md`
+for current sprint. Avoid rebuilding things already shipped. For new
+features see `docs/VERA_ROADMAP.md` priority table.
 
-## What's live (as of 2026-04-05)
+## What's live (as of 2026-05-10)
 
 ### Backend
-- FastAPI + WebSocket gateway (`/ws`) — auth via token in query param
-- PostgreSQL schema: users, sessions, memory_items, audit_log, suggestions, actions, metrics
-- LLM layer: abstract `LLMClient` → `MistralClient` + `GroqClient` (swap via `LLM_PROVIDER` env)
-- Real `Orchestrator`: memory retrieval → system prompt → LLM call → rolling history (20 turns)
-- `MemoryService`: DB-backed store/retrieve, confidence-ranked, expiry-aware
-- Rule-based memory extraction from user messages (preference triggers)
-- Global exception handlers, correct `datetime.now(timezone.utc)` throughout
-- DB indexes on all hot query paths
+- FastAPI + WebSocket gateway with token-as-first-message auth
+- PostgreSQL 16 + pgvector (Docker on host port 5433)
+- Alembic migrations active; initial revision `47ef6902e297` is head
+- **4 LLM providers**: Gemini (default, 250K TPM free), Groq, Ollama, Mistral
+- Orchestrator with tool-loop (max 6 rounds), history compaction at 30 msgs, async background memory extraction, pre-tool ack via `assistant.thinking` events, approval gate via `agent.action_pending`, audit log per tool call
+- **32 tools** registered: web, memory, files, system, calendar, gmail, spotify, maps, news, currency
+- Destructive tools (`send_email`, `delete_event`, `trash_email`) gated through approval modal (60s timeout, fail-closed)
+- Memory service with hybrid retrieval (semantic via pgvector cosine HNSW + confidence + recency decay)
+- Embeddings via fastembed (BAAI/bge-small-en-v1.5, 384 dim)
+- Audit log writes for every tool call (name, args_hash, latency_ms, result_len, error)
+- "Sign in with Google" using existing Desktop OAuth client, auto-closing OAuth tab, fetches real display name via userinfo endpoint
+- Rate-limited login (10/min/IP) and `/api/log` (60/min/IP)
+- CORS allow_origins from `ALLOWED_ORIGINS` env (not wildcard)
+- Log rotation: `frontend.log` via RotatingFileHandler (10MB × 5)
 
 ### Frontend (PWA)
-- React + Vite, all panels wired: Chat, Voice (VAD), Session, Suggestions (mock), Settings (mock)
-- WebSocket client with proper cleanup
-- VAD hook with barge-in (stops TTS on voice detect)
-- Chat auto-scroll + Enter key support
-- API/WS base URLs read from `VITE_API_BASE` / `VITE_WS_BASE` env vars
+- React + Vite + TypeScript strict
+- LoginPage with "Sign in with Google" + email fallback
+- MainPage: top bar (status pills, hands-free toggle, install button, cogwheel), full-height chat (markdown rendered), voice bar (sensitivity slider, interim transcript), text input
+- Voice: VAD + STT + TTS via Web Speech API, mute during TTS (350ms grace), noise-floor calibration, sensitivity slider persisted to localStorage, STT VAD-gating, confidence threshold
+- Wake word: Web Speech API based (NOT Picovoice — Picovoice console blocks personal accounts), fuzzy phrase match "hey vera"/"vera"
+- TTS: markdown stripped so VERA reads naturally
+- PWA install prompt + iOS Add-to-Home-Screen hint
+- Session token persisted in localStorage — refresh keeps logged in
+- Cogwheel drawer: IntegrationsPanel (Google), MemoriesPanel (view+delete), SuggestionsPanel, SettingsPanel
+- Approval modal with 60s countdown for destructive tools
+- Toast notifications for rate-limit, quota, and other errors
 
-## Still stubs / not done
-- STT pipeline: VAD fires but audio never transcribed — no `STTClient` yet
-- `SuggestionsPanel`: shows mock data, not connected to DB
-- `SettingsPanel`: toggles not persisted
-- `Scheduler` (Sprint 5): empty `tick()` — no proactive suggestions generated yet
-- Email / Calendar / Todo tools (Sprint 6)
-- pgvector + embedding model for semantic memory search
-- OAuth for external integrations
-- Rate limiting middleware
+### Deploy
+- `docker-compose.yml` — local 3-service stack
+- `docker-compose.prod.yml` overlay — adds Caddy reverse proxy
+- `Caddyfile` — auto Let's Encrypt HTTPS + WSS routing
+- `.env.production.example` template
+- Hetzner deploy instructions in `docs/MANUAL_SETUP.md` §11b
 
-## LLM config
-- Provider: Mistral (free tier) — set `MISTRAL_API_KEY` in `.env`
-- Alt: Groq (`LLM_PROVIDER=groq`, `GROQ_API_KEY=...`) — faster, better for voice latency
-- Model configurable via `LLM_MODEL` env var
+## Still not done (post-POC backlog)
 
-## Key files
-- `backend/app/services/llm.py` — LLM abstraction + provider impls
-- `backend/app/services/orchestrator.py` — VERA brain
-- `backend/app/services/memory.py` — memory CRUD
-- `backend/app/api/ws.py` — WebSocket gateway
-- `backend/app/core/config.py` — all settings
+- "Sign in with Google" on cloud deploy — Web OAuth client (not Desktop) may be needed if running headless
+- httpx singleton lifecycle close on shutdown (P2)
+- STT lang configurable from user_settings table (P2)
+- WebSocket auto-reconnect with backoff (P1)
+- Memory search/filter in MemoriesPanel
+- React error boundary
+- Per-user LLM token budget + alerting
+- MCP client + server (3 days post-POC)
+- RAG knowledge base
+- Vision / image upload
+- Code execution sandbox
+- openWakeWord offline (replace Web Speech wake)
+- Native iOS/Android wrapper
+- CI pipeline
+- Pytest suite (no tests yet)
+
+## Critical files
+
+- `backend/app/services/orchestrator.py` — main brain (tool loop + approval + audit + memory)
+- `backend/app/services/tools.py` — 32-tool registry
+- `backend/app/services/llm.py` — provider abstraction (Mistral / Groq / OpenAI-compatible for Gemini+Ollama)
+- `backend/app/services/google_oauth.py` — OAuth + `run_oauth_with_autoclose`
+- `backend/app/services/memory.py` — pgvector semantic retrieval
+- `backend/app/services/approval_gate.py` — asyncio.Event registry
+- `backend/app/db/models.py` — `embedding_vector` uses `pgvector.sqlalchemy.Vector(384)`
+- `client/src/App.tsx` — top-level state + WS handlers
+- `client/src/components/MainPage.tsx` — main UI shell
+- `client/src/lib/useVoiceSession.ts` — VAD + STT + mute + sensitivity
+- `client/src/lib/useWakeWord.ts` — Web Speech wake-word
+
+## Common gotchas (from `docs/COPILOT_HANDOFF.md`)
+
+1. WebSocket routing in FastAPI silently fails — `_NoCORSForWebSocket` dispatches directly
+2. React StrictMode double-mounts effects — `intentionalCloseRef` survives cleanup-rerun
+3. `asyncio.create_task` orphans — held in `_bg_tasks` set
+4. PowerShell command injection — `send_notification` uses base64 `-EncodedCommand`
+5. Sensitive paths blocked — `_safe_path` rejects `.env`/`.ssh`/`*.pem`
+6. Tool descriptions count toward TPM — keep ≤120 chars each
+7. `store_memory` returns marker, orchestrator handles DB write
+8. Spotify needs Premium for app owner — friendly error shown
+9. Test-mode Google tokens expire weekly — UI reconnect button
+10. Approval gate timeout = reject (fail-closed)
+11. `agent.open_url` fires LIVE mid-turn (not deferred)
+12. Wake word and main voice share mic — wake auto-pauses during session
+13. `.env` parser uses LAST value on duplicate keys
+14. Picovoice removed — Web Speech wake word replaces it
+
+## Env vars summary
+
+Backend essentials:
+```
+DATABASE_URL=postgresql+psycopg2://vera:vera@localhost:5433/vera
+LLM_PROVIDER=gemini
+LLM_MODEL=gemini-2.5-flash
+GEMINI_API_KEY=<key>
+ALLOWED_ORIGINS=http://localhost:5173
+```
+
+Optional: `NEWS_API_KEY`, `SPOTIFY_CLIENT_ID/SECRET`, `EMBEDDING_PROVIDER`, `VERA_FS_ROOT`, `SECRET_KEY`.

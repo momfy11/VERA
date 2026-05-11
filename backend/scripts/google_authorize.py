@@ -17,14 +17,13 @@ from __future__ import annotations
 
 import sys
 
-from google_auth_oauthlib.flow import InstalledAppFlow
-
 from backend.app.services.google_oauth import (
     OAUTH_LOCAL_PORT,
     SCOPES,
     find_client_secret,
     get_token_path,
     reset_service_cache,
+    run_oauth_with_autoclose,
 )
 
 
@@ -41,13 +40,12 @@ def main() -> int:
         print(f"    {s}")
     print(f"→ Opening browser for authorization (callback on port {OAUTH_LOCAL_PORT})…")
 
-    flow = InstalledAppFlow.from_client_secrets_file(str(secret_file), SCOPES)
     try:
-        creds = flow.run_local_server(port=OAUTH_LOCAL_PORT, open_browser=True)
+        creds = run_oauth_with_autoclose(timeout_s=180)
     except Exception as exc:
-        print(f"\n❌ OAuth flow failed: {exc}")
+        print(f"\nOAuth flow failed: {exc}")
         print(
-            "\nIf your OAuth client is type 'Web application', add this redirect URI\n"
+            f"\nIf your OAuth client is type 'Web application', add this redirect URI\n"
             f"in Google Cloud Console → Credentials → your OAuth client:\n"
             f"   http://localhost:{OAUTH_LOCAL_PORT}/\n"
             "Then re-run this script."

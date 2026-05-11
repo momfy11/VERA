@@ -1,0 +1,48 @@
+# Production overlay: caddy in front for HTTPS + WSS via auto Let's Encrypt.
+#
+# Usage:
+#   export DOMAIN=vera.example.com
+#   export PUBLIC_API_BASE=https://vera.example.com/api
+#   export PUBLIC_WS_BASE=wss://vera.example.com
+#   export ALLOWED_ORIGINS=https://vera.example.com
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# DNS A record for $DOMAIN must point at the host. Caddy auto-provisions cert.
+
+services:
+  postgres:
+    ports: []                    # don't expose DB to host in prod
+
+  backend:
+    ports: []                    # only Caddy reaches it
+    environment:
+      DATABASE_URL: postgresql+psycopg2://vera:vera@postgres:5432/vera
+      ENVIRONMENT: production
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+
+  frontend:
+    ports: []
+    build:
+      args:
+        VITE_API_BASE: ${PUBLIC_API_BASE}
+        VITE_WS_BASE: ${PUBLIC_WS_BASE}
+
+  caddy:
+    image: caddy:2.8
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

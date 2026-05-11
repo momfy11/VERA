@@ -3,23 +3,36 @@
 
 ---
 
-## Current State (as of 2026-04-16)
+## Current State (as of 2026-05-07)
 
 | Capability | Status |
 |---|---|
-| WebSocket session + auth | ✅ Working |
-| LLM chat (Groq / Mistral) | ✅ Working |
-| Cross-session chat memory (DB-persisted) | ✅ Working |
-| Rule-based preference extraction | ✅ Working |
-| Proactive suggestions (scheduler) | ✅ Working |
-| Voice activity detection (VAD) | ✅ Working (no STT yet) |
-| Login page / Main page UI | ✅ Working |
-| Settings overlay (cogwheel) | ✅ Working |
-| Real-time web data | ❌ Not yet |
-| Tool use / agent mode | ❌ Not yet |
-| Voice-to-text (STT) | ❌ Not yet |
-| File / device access | ❌ Not yet |
-| External integrations | ❌ Not yet |
+| WebSocket session + auth | ✅ |
+| LLM chat (Gemini default + Groq/Mistral/Ollama) | ✅ |
+| Cross-session chat memory (DB-persisted) | ✅ |
+| LLM-based memory extraction + summarization | ✅ |
+| Proactive suggestions (scheduler) | ✅ |
+| Voice activity detection (VAD) + noise calibration + sensitivity slider | ✅ |
+| Voice-to-text (STT) — Web Speech API | ✅ |
+| Text-to-speech (TTS) — Web Speech API w/ markdown stripping | ✅ |
+| Wake word ("Hey VERA") — Web Speech based | ✅ |
+| Pre-tool ack ("Checking your inbox…") | ✅ |
+| Real-time web data (search/news/weather/wiki) | ✅ |
+| Tool use / agent mode (32 tools) | ✅ |
+| File system tools (read/list/search, sensitive blocklist) | ✅ partial (write/exec not built) |
+| External integrations (Calendar/Gmail/Spotify/Maps) | ✅ |
+| Approval gates for destructive tools | ✅ |
+| Audit log for tool calls | ✅ |
+| pgvector semantic memory | ✅ code, ⚠ extension not yet installed in DB |
+| PWA install + service worker | ✅ |
+| Login page / Main page UI | ✅ |
+| Settings overlay (Integrations / Memories / Suggestions / Settings) | ✅ |
+| localStorage session persistence | ✅ |
+| Approval modal with countdown | ✅ |
+| Sign in with Google as primary auth | ❌ deferred to POC week 2 |
+| Vision / image upload | ❌ |
+| RAG knowledge base | ❌ |
+| Native mobile wrapper | ❌ |
 
 ---
 
@@ -32,7 +45,7 @@ Everything here runs without additional paid APIs or hardware.
 - [x] Abstract `Tool` interface (`name`, `description`, JSON-schema `parameters`, async `execute`)
 - [x] Tool registry loaded into Orchestrator
 - [x] Multi-turn tool-calling loop in Orchestrator (call LLM → execute tools → feed results back → repeat until final text)
-- [ ] Tool calls and results logged to `audit_log`
+- [x] Tool calls and results logged to `audit_log` (tool name, args_hash, latency_ms, result_len, error)
 - [x] Graceful error handling: tool failure yields an error message to LLM, not a crash
 
 ### 1.2 Built-in Tools (no API keys required)
@@ -78,7 +91,7 @@ VERA gets the ability to act on your machine. **Every destructive or visible act
 - [ ] Working directory scoped to project root unless overridden
 
 ### 2.3 Browser Automation
-- [ ] **`open_url(url)`** — open a URL in the default browser
+- [x] **`open_url(url)`** — opens via `agent.open_url` WS event → frontend `window.open` (works on phone deep-link to native apps)
 - [ ] **`fetch_page(url)`** — fetch and parse a web page (Playwright headless)
 - [ ] **`take_screenshot()`** — screenshot current screen, send to vision model
 - [ ] **`fill_form(url, fields)`** — fill and submit a web form (requires approval)
@@ -103,16 +116,18 @@ VERA gets the ability to act on your machine. **Every destructive or visible act
 *Estimated: weeks–months (depends on credential setup)*
 
 ### 3.1 Calendar
-- [ ] Google Calendar API (read events, create events, update, delete)
+- [x] Google Calendar API (read, create, delete events)
+- [x] `get_agenda(days)`, `create_event(...)`, `find_event(query)`, `delete_event(id)`
+- [ ] `find_free_slot(...)` — scan agenda gaps
 - [ ] Outlook / Microsoft Graph API alternative
-- [ ] `get_agenda(date_range)`, `create_event(...)`, `find_free_slot(...)`
-- [ ] Proactive: morning briefing of today's calendar
+- [ ] Proactive: morning briefing of today's calendar (rule exists in scheduler, no agenda fetch yet)
 
 ### 3.2 Email
-- [ ] Gmail API or IMAP (read-only first, then send with approval)
-- [ ] `search_emails(query, limit)`, `read_email(id)`, `send_email(to, subject, body)`
+- [x] Gmail API + OAuth flow
+- [x] `list_emails(query, limit)`, `read_email(id)`, `send_email(to, subject, body)`, `trash_email(id)`, `mark_as_read(id)`
+- [x] Send + trash gated through approval modal
 - [ ] Email summarization: "You have 12 unread, here are the important ones"
-- [ ] Draft replies (requires approval before sending)
+- [ ] Draft replies (currently sends directly after approval)
 
 ### 3.3 Task / Notes
 - [ ] Obsidian vault integration (read/write markdown files in vault)
@@ -122,15 +137,22 @@ VERA gets the ability to act on your machine. **Every destructive or visible act
 
 ### 3.4 Real-time Data
 - [ ] **Stock/crypto prices** — Alpha Vantage free tier or Yahoo Finance (no key)
-- [ ] **News headlines** — NewsAPI free tier or RSS parsing
+- [x] **News headlines** — NewsAPI (`get_news(topic, country, limit)`)
 - [ ] **Sports scores** — free sports APIs
-- [ ] **Currency conversion** — exchangerate.host (free)
+- [x] **Currency conversion** — frankfurter.dev (`convert_currency(amount, from, to)`)
 - [ ] **Public transport** — city-specific APIs
 
 ### 3.5 Media Control
-- [ ] Spotify Web API (play, pause, skip, search, queue)
+- [x] Spotify Web API (play, pause, skip, now_playing, queue) — **needs Premium account on developer side**
 - [ ] YouTube search and queue
 - [ ] Local media player control (VLC, Windows Media Player)
+
+### 3.6 Maps (added)
+- [x] `maps_directions(origin, dest, mode)` — Google Maps URL → opens in browser/app
+- [x] `maps_search(query)` — Google Maps place search
+- [x] `get_route(origin, dest, mode)` — distance + duration via OSRM + Nominatim (free, no key)
+- [x] `nearby_places(query, near)` — Nominatim search
+- [x] `open_url(url)` — generic URL opener via WS event
 
 ---
 
@@ -148,10 +170,19 @@ VERA gets the ability to act on your machine. **Every destructive or visible act
 - [ ] **Whisper via Groq** (Groq's Whisper endpoint, very fast) — cloud fallback
 
 ### 4.2 Text-to-Speech (TTS)
-- [ ] Web Speech API SpeechSynthesis (already partially wired, needs activation)
+- [x] Web Speech API SpeechSynthesis with markdown stripping for natural reading
+- [x] Pre-tool ack TTS ("Checking your inbox…") for instant feedback
+- [x] STT mute + grace period during TTS to prevent echo loop
 - [ ] **ElevenLabs** (streaming TTS, expressive voice) — premium option
 - [ ] **Coqui TTS** local model — offline option
 - [ ] SSML support for emphasis, pauses, tone
+
+### 4.4 Wake Word (added)
+- [x] Web Speech API based wake-word listener — fuzzy phrase match ("hey vera", "vera")
+- [x] Auto-pause during main voice session (no mic conflict)
+- [x] Configurable phrases via `VITE_WAKE_PHRASES`
+- [ ] openWakeWord backend route (offline, private — current impl streams to Google STT)
+- [ ] Custom user-trained "Hey VERA" model
 
 ### 4.3 Vision / Image Understanding
 - [ ] Screenshot analysis — VERA can see your screen via `take_screenshot` + vision model
@@ -170,10 +201,12 @@ VERA gets the ability to act on your machine. **Every destructive or visible act
 *Estimated: months (ongoing)*
 
 ### 5.1 Semantic Memory (pgvector)
-- [ ] Enable `pgvector` PostgreSQL extension
-- [ ] Generate embeddings for all memory items (nomic-embed-text via Ollama, or text-embedding-3-small via OpenAI)
-- [ ] Replace recency-based retrieval with cosine similarity search
-- [ ] Hybrid retrieval: semantic + recency + confidence score
+- [ ] Enable `pgvector` PostgreSQL extension (waiting on user install — code already calls extension if present)
+- [x] Embedding provider abstraction (fastembed default, Ollama, OpenAI)
+- [x] Generate embeddings for memory items in `MemoryService.store`
+- [x] `_retrieve_semantic` cosine similarity search via pgvector `<=>`
+- [x] Hybrid retrieval: similarity × 0.7 + confidence × 0.2 + recency × 0.1
+- [x] Backfill script `enable_pgvector.py` for existing memories
 
 ### 5.2 Custom Knowledge Base (RAG)
 - [ ] Upload documents to a knowledge store (PDF, DOCX, TXT, MD, code files)
@@ -290,7 +323,7 @@ Each of these would be a curated knowledge base loaded into RAG:
 
 ## Priority Order for Next Builds
 
-| # | Feature | Why first |
+| # | Feature | Status |
 |---|---|---|
 | 1 | Tool calling framework | ✅ Done |
 | 2 | Web search + weather + Wikipedia | ✅ Done |
@@ -298,8 +331,28 @@ Each of these would be a curated knowledge base loaded into RAG:
 | 4 | Voice STT (Web Speech API) | ✅ Done |
 | 5 | File system read/list/search tools | ✅ Done |
 | 5b | Notification + clipboard tools | ✅ Done |
-| 6 | Calendar integration | Daily life integration |
-| 7 | pgvector semantic memory | Memory quality leap |
-| 8 | RAG knowledge base | Engineering intelligence |
-| 9 | Email integration | Closes the loop on communication |
-| 10 | Terminal / code execution | Full agent capability |
+| 6 | Calendar integration | ✅ Done |
+| 7 | pgvector semantic memory | ✅ Code done, ⚠ install pgvector to activate |
+| 8 | Email integration (Gmail) | ✅ Done |
+| 9 | Spotify integration | ✅ Done (needs Premium) |
+| 10 | Maps integration | ✅ Done |
+| 11 | Pre-tool ack ("thinking") | ✅ Done |
+| 12 | Approval gates UI | ✅ Done |
+| 13 | Memory editing UI | ✅ Done |
+| 14 | PWA + service worker | ✅ Done |
+| 15 | Wake word ("Hey VERA") | ✅ Done (Web Speech based) |
+| 16 | Audit log for tool calls | ✅ Done |
+| 17 | localStorage session | ✅ Done |
+| 18 | CORS from env + login rate limit | ✅ Done |
+| 19 | Log rotation | ✅ Done |
+| 20 | Mic sensitivity calibration | ✅ Done |
+| 21 | TTS markdown stripping | ✅ Done |
+| 22 | Alembic migrations | ✅ Done |
+| 23 | **Sign in with Google** as primary auth | ⏳ POC week 2 |
+| 24 | RAG knowledge base | ⏳ post-POC |
+| 25 | Vision / image upload | ⏳ post-POC |
+| 26 | Terminal / code execution | ⏳ post-POC |
+| 27 | openWakeWord offline | ⏳ post-POC |
+| 28 | Native mobile wrapper | ⏳ post-POC |
+| 29 | MCP client (consume external MCP servers) | ⏳ post-POC, ~2 days |
+| 30 | MCP server (expose VERA tools to other LLMs) | ⏳ post-POC, ~1 day |

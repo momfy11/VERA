@@ -7,6 +7,16 @@ from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Te
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+# pgvector adapter for SQLAlchemy. If pgvector package missing OR extension
+# not in DB, fall back to ARRAY(Float) so ORM still works (semantic search off).
+try:
+    from pgvector.sqlalchemy import Vector as _PGVector
+    _EMBEDDING_TYPE = _PGVector(384)
+    _PGVECTOR_OK = True
+except Exception:
+    _EMBEDDING_TYPE = ARRAY(Float)
+    _PGVECTOR_OK = False
+
 
 class Base(DeclarativeBase):
     """Base declarative class."""
@@ -89,7 +99,7 @@ class MemoryItem(Base):
     ts: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)
-    embedding_vector: Mapped[list] = mapped_column(ARRAY(Float), nullable=True)
+    embedding_vector: Mapped[list[float] | None] = mapped_column(_EMBEDDING_TYPE, nullable=True)
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     source: Mapped[str] = mapped_column(String(64), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)

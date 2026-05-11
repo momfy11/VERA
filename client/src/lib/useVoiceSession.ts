@@ -21,8 +21,16 @@ type VoiceSessionOptions = {
   onVadEnd?: () => void;
   onStatusChange?: (status: VoiceStatus) => void;
   onSpeechFinal?: (text: string) => void;
+  /** Manual floor for VAD threshold; auto-calibrated up from noise. Default 0.04. */
   threshold?: number;
+  /** Hangover before VAD declares speech-end. Default 400ms. */
   hangoverMs?: number;
+  /** Sensitivity 0..1. Higher = more permissive (catches quieter speech, also more false positives). Default 0.5. */
+  sensitivity?: number;
+  /** Drop STT results below this Web-Speech confidence. Default 0.55. */
+  confidenceThreshold?: number;
+  /** Drop STT results when no VAD-active period in this window before final. Default 2000ms. */
+  vadGateMs?: number;
 };
 
 type VoiceSessionState = {
@@ -38,6 +46,10 @@ type VoiceSessionState = {
    * Pass true when TTS starts, false (after a small grace period) when it ends.
    */
   setMuted: (muted: boolean) => void;
+  /** Set sensitivity (0..1). Higher = catches quieter speech, more false positives. */
+  setSensitivity: (s: number) => void;
+  /** Current calibrated noise floor (RMS). Useful for showing live meter in UI. */
+  noiseFloor: number;
 };
 
 // Browser SpeechRecognition shim (not yet in all TypeScript lib defs)
@@ -54,11 +66,19 @@ const SpeechRecognitionImpl =
   null;
 
 export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSessionState {
-  const { onVadStart, onVadEnd, onStatusChange, onSpeechFinal, threshold = 0.03, hangoverMs = 400 } = options;
+  const {
+    onVadStart, onVadEnd, onStatusChange, onSpeechFinal,
+    threshold = 0.04,
+    hangoverMs = 400,
+    sensitivity = 0.4,         // stricter by default — TV bleed common
+    confidenceThreshold = 0.6, // drop garbled transcripts more aggressively
+    vadGateMs = 1800,
+  } = options;
 
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [interimTranscript, setInterimTranscript] = useState("");
+  const [noiseFloor, setNoiseFloor] = useState(0);
 
   // VAD refs
   const streamRef = useRef<MediaStream | null>(null);
@@ -67,6 +87,12 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
   const rafIdRef = useRef<number | null>(null);
   const lastVoiceAtRef = useRef<number | null>(null);
   const speakingRef = useRef(false);
+  // Effective threshold = max(manualFloor, noiseFloor * gain). Computed live.
+  const noiseFloorRef = useRef(0);
+  const sensitivityRef = useRef(sensitivity);
+  const setSensitivity = useCallback((s: number) => {
+    sensitivityRef.current = Math.max(0, Math.min(1, s));
+  }, []);
 
   // STT refs
   const recognitionRef = useRef<any>(null);
@@ -111,6 +137,8 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
     }
     sttRunningRef.current = false;
     sttErrorCountRef.current = 0;
+    noiseFloorRef.current = 0;
+    setNoiseFloor(0);
     setInterimTranscript("");
 
     updateStatus("idle");
@@ -137,6 +165,17 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
       const buffer = new Uint8Array(analyser.fftSize);
       updateStatus("listening");
 
+      // Noise-floor calibration window. We sample background RMS for the first
+      // ~1 sec, then keep tracking it slowly while no speech to adapt to drift
+      // (e.g. TV gets louder, fan kicks on). The effective VAD threshold is
+      // max(manualFloor, noiseFloor * gain) where gain is set from sensitivity.
+      const calibStart = performance.now();
+      const CALIB_MS = 1000;
+      let calibSum = 0;
+      let calibCount = 0;
+      let calibrated = false;
+      noiseFloorRef.current = 0;
+
       const loop = () => {
         if (!analyserRef.current) return;
         analyserRef.current.getByteTimeDomainData(buffer);
@@ -148,7 +187,36 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
         const rms = Math.sqrt(sum / buffer.length);
         const now = performance.now();
 
-        if (rms > threshold) {
+        // ── Calibration phase: just collect, don't trigger VAD ──────────────
+        if (!calibrated) {
+          calibSum += rms;
+          calibCount += 1;
+          if (now - calibStart >= CALIB_MS) {
+            const avg = calibCount > 0 ? calibSum / calibCount : 0;
+            noiseFloorRef.current = avg;
+            setNoiseFloor(avg);
+            calibrated = true;
+          } else {
+            rafIdRef.current = requestAnimationFrame(loop);
+            return;
+          }
+        }
+
+        // Slow drift tracking when not speaking — exponential moving average
+        if (!speakingRef.current) {
+          noiseFloorRef.current = noiseFloorRef.current * 0.995 + rms * 0.005;
+          // Don't push to state every frame — only every ~500ms to spare React
+          if (Math.floor(now / 500) !== Math.floor((now - 16) / 500)) {
+            setNoiseFloor(noiseFloorRef.current);
+          }
+        }
+
+        // sensitivity ∈ [0..1] → gain ∈ [5..1.6]. Lower sens = stricter (higher gain).
+        const s = sensitivityRef.current;
+        const gain = 5 - s * 3.4;
+        const effThreshold = Math.max(threshold, noiseFloorRef.current * gain);
+
+        if (rms > effThreshold) {
           lastVoiceAtRef.current = now;
           if (!speakingRef.current) {
             speakingRef.current = true;
@@ -201,7 +269,23 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
           for (let i = event.resultIndex; i < event.results.length; i++) {
             const result = event.results[i];
             if (result.isFinal) {
-              const text = result[0].transcript.trim();
+              const alt = result[0];
+              const text = (alt.transcript || "").trim();
+              const conf = typeof alt.confidence === "number" ? alt.confidence : 1;
+
+              // Gate 1: VAD must have detected loud-enough speech recently.
+              // Without this, the TV across the room transcribes itself.
+              const lastVad = lastVoiceAtRef.current;
+              const recent = lastVad !== null && performance.now() - lastVad < vadGateMs;
+              if (!recent) {
+                setInterimTranscript("");
+                continue;
+              }
+              // Gate 2: confidence threshold drops noisy/garbled transcripts
+              if (conf < confidenceThreshold) {
+                setInterimTranscript("");
+                continue;
+              }
               if (text) {
                 setInterimTranscript("");
                 onSpeechFinal(text);
@@ -245,5 +329,7 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
     start,
     stop,
     setMuted,
+    setSensitivity,
+    noiseFloor,
   };
 }

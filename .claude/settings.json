@@ -15,7 +15,9 @@
       "Bash(vera/Scripts/pip install *)",
       "Bash(npm install *)",
       "Read(//c/Users/momfy/AppData/Local/npm-cache/_logs/**)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(pg_isready -h localhost -p 5432)",
+      "Bash(vera/Scripts/python -c \"import socket; s=socket.socket\\(\\); s.settimeout\\(2\\); s.connect_ex\\(\\('localhost', 5432\\)\\) and print\\('Port 5432 NOT reachable'\\) or print\\('Port 5432 OK'\\)\")"
     ]
   }
 }

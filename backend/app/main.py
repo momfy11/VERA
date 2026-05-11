@@ -12,7 +12,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from backend.app.core.config import settings
 from backend.app.observability.logger import configure_logging
-from backend.app.api.routes import auth, google, health, suggestions
+from backend.app.api.routes import actions, auth, google, health, memories, suggestions
 from backend.app.api.ws import websocket_endpoint
 from backend.app.services.scheduler import proactive_scheduler
 
@@ -50,14 +50,28 @@ class _NoCORSForWebSocket:
         # If user explicitly opted into wildcard ('*' anywhere) preserve it,
         # otherwise tighten to whatever they listed.
         wildcard = "*" in origins
+        # In development, also accept any LAN IP (so phone-on-WiFi can hit
+        # http://192.168.x.y:5173) and well-known dev-tunnel hostnames so
+        # we can install the PWA from a phone before deploying.
+        allow_origin_regex = None
+        if settings.environment.lower() == "development" and not wildcard:
+            allow_origin_regex = (
+                r"^https?://(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|"
+                r"192\.168\.\d+\.\d+|172\.(?:1[6-9]|2\d|3[01])\.\d+\.\d+)"
+                r"(:\d+)?$"
+                r"|^https://[\w-]+\.trycloudflare\.com$"
+                r"|^https://[\w-]+\.ngrok(?:-free)?\.app$"
+                r"|^https://[\w-]+\.loca\.lt$"
+            )
         self._http_app = CORSMiddleware(
             app,
             allow_origins=origins,
+            allow_origin_regex=allow_origin_regex,
             allow_credentials=not wildcard,
             allow_methods=["*"],
             allow_headers=["*"],
         )
-        logger.info("CORS allow_origins=%s", origins)
+        logger.info("CORS allow_origins=%s regex=%s", origins, bool(allow_origin_regex))
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "websocket":
@@ -87,6 +101,8 @@ app.include_router(health.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
 app.include_router(suggestions.router, prefix="/api")
 app.include_router(google.router, prefix="/api")
+app.include_router(memories.router, prefix="/api")
+app.include_router(actions.router, prefix="/api")
 
 
 @app.exception_handler(ValidationError)

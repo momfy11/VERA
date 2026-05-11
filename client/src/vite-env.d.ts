@@ -3,9 +3,7 @@
 interface ImportMetaEnv {
   readonly VITE_API_BASE?: string;
   readonly VITE_WS_BASE?: string;
-  readonly VITE_PICOVOICE_KEY?: string;
-  readonly VITE_WAKE_WORD?: string;
-  readonly VITE_WAKE_WORD_PATH?: string;
+  readonly VITE_WAKE_PHRASES?: string;
 }
 
 interface ImportMeta {

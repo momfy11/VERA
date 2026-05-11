@@ -1,3 +1,3 @@
 # VERA Project Memory Index
 
-- [VERA project current state](project_vera_state.md) — Sprint 4 done; what's live, what's stub, what's next
+- [VERA project current state](project_vera_state.md) — Updated 2026-05-10. POC feature-complete, cloud deploy templates ready, awaiting Hetzner push.

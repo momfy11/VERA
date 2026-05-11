@@ -3,7 +3,9 @@
 These items cannot be automated by code alone. Each one needs credentials,
 third-party accounts, or system configuration that only you can provide.
 
-All API tiers / URLs verified 2026-04 — check the linked docs for current limits.
+All API tiers / URLs verified 2026-05 — check the linked docs for current limits.
+
+> **⚠ .env duplicate-keys warning**: pydantic's dotenv parser silently uses the LAST occurrence on duplicate keys. If you append a "production" block to your existing `.env` you'll override `LLM_PROVIDER`, `ALLOWED_ORIGINS`, etc. — frontend will lose CORS, Gemini will revert to whatever's in the second block. Edit, don't append.
 
 ---
 
@@ -280,54 +282,35 @@ Notifications must be enabled in Windows Settings → System → Notifications �
 
 ---
 
-## 11. Docker Compose (recommended)
+## 11. Docker Compose — see §11 (below summary table) for current recipe.
 
-A `docker-compose.yml` would let you start postgres + backend + frontend
-with one command. Not yet created — example skeleton:
-
-```yaml
-services:
-  postgres:
-    image: pgvector/pgvector:pg16
-    environment:
-      POSTGRES_USER: vera
-      POSTGRES_PASSWORD: vera
-      POSTGRES_DB: vera
-    volumes:
-      - vera_pgdata:/var/lib/postgresql/data
-    ports: ["5432:5432"]
-
-  backend:
-    build: ./backend
-    env_file: ./backend/.env
-    volumes:
-      - ./backend:/app
-    ports: ["8000:8000"]
-    depends_on: [postgres]
-
-  frontend:
-    build: ./client
-    ports: ["5173:5173"]
-    volumes:
-      - ./client:/app
-
-volumes:
-  vera_pgdata:
-```
+Old skeleton replaced by working files in repo root. Skip to §11 below.
 
 ---
 
-## 12. Alembic Migrations
+## 12. Alembic Migrations ✅ adopted
 
-Currently migrations are applied manually with raw SQL. Adopt Alembic:
-```
-./vera/Scripts/pip install alembic
+Already wired. Initial revision `47ef6902e297` is current head.
+
+**To add a new migration after editing models:**
+```bash
 cd backend
-alembic init migrations
-# Edit alembic.ini → set sqlalchemy.url to your db
-# Edit migrations/env.py → import your Base.metadata
-alembic revision --autogenerate -m "initial"
-alembic upgrade head
+../vera/Scripts/alembic revision --autogenerate -m "add new column"
+# Review generated file in migrations/versions/ — Alembic mis-generates type changes sometimes
+../vera/Scripts/alembic upgrade head
+```
+
+**Common issue: `InsufficientPrivilege` on ALTER TABLE.** Tables created by manual SQL or `init_db.py` are owned by `postgres`. `vera` role can't ALTER them. Fix once:
+```bash
+"/c/Program Files/PostgreSQL/16/bin/psql.exe" -U postgres -d vera
+```
+```sql
+DO $$ DECLARE r record;
+BEGIN
+  FOR r IN SELECT tablename FROM pg_tables WHERE schemaname='public' LOOP
+    EXECUTE 'ALTER TABLE public.'||quote_ident(r.tablename)||' OWNER TO vera';
+  END LOOP;
+END $$;
 ```
 
 ---
@@ -341,39 +324,123 @@ No CI pipeline yet. A `.github/workflows/ci.yml` would run:
 
 ---
 
-## 14b. Wake Word — Picovoice Porcupine ("Hey VERA")
+## 11. Docker Compose ✅ ready
 
-Hands-free trigger. Runs in browser, low CPU, works in PWA install.
+Three services in `docker-compose.yml`:
+- `postgres` — pgvector/pgvector:pg16 on host port 5433
+- `backend` — uvicorn FastAPI
+- `frontend` — Vite build → nginx serve
+
+**Local dev (whole stack via Docker):**
+```bash
+docker compose up -d
+# frontend at http://localhost:5173
+# backend at http://localhost:8000
+# postgres at localhost:5433
+```
+
+**Hybrid (Postgres in Docker, backend+frontend on host):**
+```bash
+docker compose up -d postgres
+# Update backend/.env: DATABASE_URL=postgresql+psycopg2://vera:vera@localhost:5433/vera
+cd backend && ../vera/Scripts/uvicorn backend.app.main:app --reload
+cd client && npm run dev
+```
+
+---
+
+## 11b. Cloud Deploy (production)
+
+Caddy in front for HTTPS + WSS via auto Let's Encrypt. Stack: `docker-compose.yml` + `docker-compose.prod.yml` overlay.
+
+**On a fresh Linux VM (Hetzner / DigitalOcean / Hetzner / Fly machine):**
+
+```bash
+# 1. Install Docker
+curl -fsSL https://get.docker.com | sh
+
+# 2. Clone + configure
+git clone https://github.com/<you>/VERA.git
+cd VERA
+cp .env.production.example .env
+# Edit .env — set DOMAIN, PUBLIC_API_BASE, PUBLIC_WS_BASE, ALLOWED_ORIGINS
+
+cp backend/.env.example backend/.env  # if you have one, else hand-write
+# Add: GEMINI_API_KEY, NEWS_API_KEY, SPOTIFY_*, GOOGLE_CREDENTIALS_FILE, etc.
+
+# 3. DNS — point DOMAIN A record at this server's public IP
+
+# 4. Boot
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+
+# 5. Watch Caddy issue cert (first 30s)
+docker compose logs -f caddy
+```
+
+After Caddy reports `certificate obtained successfully`, browse to `https://$DOMAIN`.
+
+**Required ports open on the VM:** 80 (Caddy HTTP→HTTPS redirect + ACME), 443 (HTTPS+WSS).
+
+**Things to swap before exposing publicly:**
+- `POSTGRES_PASSWORD` from default `vera` → strong random
+- Backend `SECRET_KEY` → fresh `python -c "import secrets; print(secrets.token_hex(32))"`
+- `VERA_FS_ROOT=/app/sandbox` (NOT `C:\` or `/`) so the file-read tools can't traverse the host
+- Spotify redirect URI in Spotify Developer Console + `.env` → `https://$DOMAIN/spotify/callback` (when wired)
+- Google OAuth: add `https://$DOMAIN` to authorized redirect URIs if switching to Web app type
+
+**Backups** — `pg_dump` cron, see §11c below.
+
+---
+
+## 11c. Postgres backups (production)
+
+```bash
+# Daily dump @ 03:00, keep 7 days
+crontab -e
+# 0 3 * * * docker exec vera-postgres-1 pg_dump -U vera vera | gzip > /backups/vera-$(date +\%F).sql.gz
+# 0 4 * * * find /backups -name 'vera-*.sql.gz' -mtime +7 -delete
+```
+
+Restore:
+```bash
+gunzip -c vera-YYYY-MM-DD.sql.gz | docker exec -i vera-postgres-1 psql -U vera vera
+```
+
+---
+
+## 14b. Wake Word — Web Speech API (free, no signup)
+
+Hands-free "Hey VERA" trigger. Uses browser Web Speech API as always-on
+detector. No API key, no model file, no signup.
 
 **Steps:**
-1. Free signup at https://console.picovoice.ai (3 personal accounts allowed)
-2. Copy your **AccessKey** from the console
-3. Create `client/.env` if it doesn't exist, add:
+1. Optional: create `client/.env` to override default trigger phrases:
    ```
-   VITE_PICOVOICE_KEY=your_access_key_here
-   VITE_WAKE_WORD=Jarvis
+   VITE_WAKE_PHRASES=hey vera,vera,computer
    ```
-4. The English model file `porcupine_params.pv` is already in `client/public/` (downloaded during setup).
-5. Restart frontend (`npm run dev`).
-6. In VERA, click the **Hands-free** button in the top bar after starting a session.
+   Defaults to `hey vera,vera`. Comma-separated, lowercase, fuzzy match.
+2. Restart frontend (`npm run dev`).
+3. In VERA, click **Hands-free** button in top bar (appears after session start).
 
-**Built-in keywords (free):** Alexa, Americano, Blueberry, Bumblebee, Computer, Grapefruit, Grasshopper, Hey Google, Hey Siri, **Jarvis**, Okay Google, Picovoice, Porcupine, Terminator. Set `VITE_WAKE_WORD=` to one of these.
+**How it works:**
+- Parallel `SpeechRecognition` runs continuously alongside main voice session
+- Transcribes everything; when transcript contains a trigger phrase, fires `start()` on main voice session
+- Wake listener pauses while main session active (avoid mic conflict)
 
-**Custom "Hey VERA" wake word (free for personal use):**
-1. In Picovoice Console → **Porcupine** → train new keyword "Hey VERA"
-2. Pick platform: **Web (WASM)**
-3. Train (~15 sec) → download `.ppn` file
-4. Place at `client/public/wake/hey-vera.ppn`
-5. Set in `client/.env`:
-   ```
-   VITE_WAKE_WORD_PATH=/wake/hey-vera.ppn
-   ```
-6. Restart frontend.
+**Tradeoffs:**
+- ✅ Free, no signup, works in Chrome/Edge today
+- ❌ Audio sent to Google Speech servers (cloud, not local)
+- ❌ Internet required
+- ❌ Chrome/Edge only (Firefox lacks SpeechRecognition)
 
-**Troubleshooting:**
-- "AccessKey rejected" → quota exhausted (3 accounts/personal). Make a new Picovoice account.
-- Mic permission required — same prompt as STT.
-- Won't run on http:// outside localhost — needs https or localhost (browser policy).
+**Privacy upgrade path (future):** swap `useWakeWord.ts` for an offline ML
+wake-word model. Best free option: [openWakeWord](https://github.com/dscripka/openWakeWord)
+(Apache 2.0, has pretrained "hey jarvis"). Requires writing audio
+preprocessing + ONNX runtime in browser, OR streaming mic to backend Python
+which runs the model. Not turnkey — medium effort.
+
+**Picovoice Porcupine note:** their console (console.picovoice.ai) now blocks
+personal Gmail signups, requires company email. We removed the integration.
 
 ---
 
@@ -420,21 +487,24 @@ If you run [Home Assistant](https://www.home-assistant.io):
 
 ## Summary Table
 
-| # | Item | Effort | Required for |
-|---|------|--------|--------------|
-| 1 | VS Code interpreter | 2 min | IDE hints gone |
-| 2 | Chrome/Edge for voice | 0 min | STT works |
-| 3 | Google Calendar OAuth | 30 min | Calendar tool |
-| 4 | Gmail OAuth | 20 min | Email tool |
-| 5 | Spotify app | 10 min | Music control |
-| 6 | NewsAPI key | 5 min | Live news |
-| 7 | pgvector | 30 min (Docker) / 1 hr (manual) | Semantic memory |
-| 8 | Production env vars | 10 min | Public deploy |
-| 9 | Whisper local | 15 min | Offline STT |
-| 10 | Notifications enabled | 1 min | Toast tool |
-| 11 | Docker Compose | 1 hr | One-command startup |
-| 12 | Alembic | 1 hr | Safe DB changes |
-| 13 | CI pipeline | 2 hr | Automated checks |
-| 14b | Picovoice wake word | 5-15 min | Hands-free "Hey VERA" |
-| 14c | PWA install | 0 min | Add VERA to home screen |
-| 15 | Home Assistant | 30 min | Smart home |
+| # | Item | Effort | Required for | Status |
+|---|------|--------|--------------|--------|
+| 0 | LLM provider key (Gemini default) | 5 min | All AI features | needed |
+| 1 | VS Code interpreter | 2 min | IDE hints gone | one-click |
+| 2 | Chrome/Edge for voice | 0 min | STT works | use right browser |
+| 3 | Google Calendar OAuth | 30 min | Calendar tool | ✅ done |
+| 4 | Gmail OAuth (same flow) | 0 min | Email tool | ✅ done |
+| 5 | Spotify app | 10 min | Music control | done; needs Premium |
+| 6 | NewsAPI key | 5 min | Live news | ✅ done |
+| 7 | pgvector | 5 min via Docker | Semantic memory | ✅ done (container on 5433) |
+| 8 | Production env vars | 10 min | Public deploy | template `.env.production.example` |
+| 9 | Whisper local | 15 min | Offline STT | optional |
+| 10 | Notifications enabled | 1 min | Toast tool | done if Win toggle on |
+| 11 | Docker Compose (full stack) | ✅ ready | One-command startup | `docker compose up -d` |
+| 11b | Cloud deploy (Caddy + HTTPS) | 30 min on fresh VM | Public-internet access | ✅ ready, follow §11b |
+| 11c | Postgres backups | 5 min cron | Disaster recovery | template provided |
+| 12 | Alembic | 0 min | Safe DB changes | ✅ done |
+| 13 | CI pipeline | 2 hr | Automated checks | not done |
+| 14b | Wake word (Web Speech) | 0 min | Hands-free "Hey VERA" | ✅ done, no signup |
+| 14c | PWA install | 0 min | Add VERA to home screen | click Install in app |
+| 15 | Home Assistant | 30 min | Smart home | optional |

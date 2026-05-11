@@ -1,0 +1,35 @@
+# Caddy reverse proxy for VERA.
+# Auto-issues a Let's Encrypt cert for $DOMAIN. HTTPS + WSS for free.
+#
+# Routing:
+#   /api/*  → backend FastAPI
+#   /ws     → backend WebSocket (upgraded)
+#   /*      → frontend nginx (PWA)
+
+{$DOMAIN} {
+    encode gzip
+
+    # API proxied to FastAPI
+    handle /api/* {
+        reverse_proxy backend:8000
+    }
+
+    # WebSocket — Caddy auto-detects Upgrade header for WS
+    handle /ws {
+        reverse_proxy backend:8000
+    }
+
+    # SPA shell + static assets
+    handle {
+        reverse_proxy frontend:80
+    }
+
+    # Security headers
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # PWA mic permission needs HTTPS — already enforced by Caddy
+    }
+}

@@ -1,4 +1,15 @@
-# VERA — Copilot Implementation Plan (Strict / Detailed)
+# VERA — Copilot Implementation Plan (HISTORICAL)
+
+> ⚠ **This document is the original Swedish work-order from before
+> implementation started. It is kept for reference but is now SUPERSEDED by:**
+>
+> - [`docs/COPILOT_HANDOFF.md`](docs/COPILOT_HANDOFF.md) — current state for AI coworker handoff
+> - [`docs/POC_PLAN.md`](docs/POC_PLAN.md) — current 2-week sprint plan
+> - [`docs/VERA_ROADMAP.md`](docs/VERA_ROADMAP.md) — current phased roadmap
+>
+> Use those docs for current direction. This file documents the original intent.
+
+---
 
 Detta dokument är en arbetsorder till Copilot (eller annan AI-kodassistent) för att bygga VERA stegvis med fokus på säkerhet, användarupplevelse och prestanda. Vi börjar med grundfunktionalitet (utan externa konton), och lägger därefter på integrationer som mail/kalender/todos via verktyg.
 

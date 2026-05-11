@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { ApprovalModal, type PendingAction } from "./ApprovalModal";
 import { IntegrationsPanel } from "./IntegrationsPanel";
+import { MemoriesPanel } from "./MemoriesPanel";
 import { SettingsPanel } from "./SettingsPanel";
 import { StatusPill } from "./StatusPill";
 import { SuggestionsPanel } from "./SuggestionsPanel";
@@ -18,6 +20,8 @@ type MainPageProps = {
   messages: ChatMessage[];
   isTyping: boolean;
   thinkingText: string | null;
+  pendingAction: PendingAction | null;
+  onActionResolved: () => void;
   onStop: () => void;
   onSend: (text: string) => void;
   onVadStart: () => void;
@@ -31,6 +35,8 @@ export function MainPage({
   messages,
   isTyping,
   thinkingText,
+  pendingAction,
+  onActionResolved,
   onStop,
   onSend,
   onVadStart,
@@ -39,11 +45,19 @@ export function MainPage({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [input, setInput] = useState("");
   const [handsFree, setHandsFree] = useState(false);
+  // Mic sensitivity 0..1. Restored from localStorage so user's tuning sticks.
+  const [sensitivity, setSensitivityState] = useState<number>(() => {
+    if (typeof window === "undefined") return 0.5;
+    const stored = window.localStorage.getItem("vera.mic_sensitivity");
+    const n = stored ? Number(stored) : 0.5;
+    return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0.5;
+  });
   const bottomRef = useRef<HTMLDivElement>(null);
   const sessionActive = sessionStatus === "active";
   const { canInstall, installed, isIOS, promptInstall } = useInstallPrompt();
 
-  const { status: voiceStatus, error: voiceError, isRunning, interimTranscript, start, stop, setMuted } = useVoiceSession({
+  const { status: voiceStatus, error: voiceError, isRunning, interimTranscript, start, stop, setMuted, setSensitivity, noiseFloor } = useVoiceSession({
+    sensitivity,
     onVadStart,
     onVadEnd,
     onSpeechFinal: (text) => {
@@ -85,6 +99,12 @@ export function MainPage({
   useEffect(() => {
     if (!sessionActive && isRunning) stop();
   }, [sessionActive, isRunning, stop]);
+
+  // Push sensitivity changes into the hook live (no restart needed)
+  useEffect(() => {
+    setSensitivity(sensitivity);
+    window.localStorage.setItem("vera.mic_sensitivity", String(sensitivity));
+  }, [sensitivity, setSensitivity]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -187,6 +207,19 @@ export function MainPage({
           <span className={`voice-dot ${voiceStatus}`} />
           <span>{voiceStatus.toUpperCase()}</span>
         </div>
+        {isRunning && (
+          <label className="mic-sensitivity" title={`Mic sensitivity. Noise floor: ${noiseFloor.toFixed(3)}`}>
+            <span className="hint-text">Mic</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={sensitivity}
+              onChange={(e) => setSensitivityState(Number(e.target.value))}
+            />
+          </label>
+        )}
         {handsFree && wake.status === "listening" && !isRunning && (
           <span className="hint-text">Wake word listening…</span>
         )}
@@ -247,12 +280,19 @@ export function MainPage({
             </div>
             <div className="settings-drawer-body">
               <IntegrationsPanel sessionToken={sessionToken} />
+              <MemoriesPanel sessionToken={sessionToken} />
               <SuggestionsPanel sessionToken={sessionToken} ws={ws} />
               <SettingsPanel />
             </div>
           </div>
         </>
       )}
+
+      <ApprovalModal
+        pending={pendingAction}
+        sessionToken={sessionToken}
+        onResolved={onActionResolved}
+      />
     </div>
   );
 }

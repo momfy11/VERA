@@ -23,6 +23,7 @@ from backend.app.services.google_oauth import (
     get_token_path,
     load_credentials,
     reset_service_cache,
+    run_oauth_with_autoclose,
 )
 
 logger = logging.getLogger(__name__)
@@ -100,15 +101,11 @@ def google_connect(
 
     def _run_flow() -> None:
         try:
-            from google_auth_oauthlib.flow import InstalledAppFlow  # noqa: PLC0415
-            flow = InstalledAppFlow.from_client_secrets_file(str(secret_file), SCOPES)
-            creds = flow.run_local_server(port=OAUTH_LOCAL_PORT, open_browser=True)
-
+            creds = run_oauth_with_autoclose(timeout_s=120)
             token_path = get_token_path()
             token_path.parent.mkdir(parents=True, exist_ok=True)
             token_path.write_text(creds.to_json())
             reset_service_cache()
-
             _auth_state["completed_at"] = time.time()
             _auth_state["error"] = None
             logger.info("Google OAuth completed via /google/connect")

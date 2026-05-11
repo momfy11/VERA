@@ -10,10 +10,13 @@ from sqlalchemy.orm import Session
 
 import hashlib
 import time
+import uuid
 
 from backend.app.core.config import settings
+from backend.app.db import models
 from backend.app.db.models import ChatMessage
 from backend.app.db.session import SessionLocal
+from backend.app.services import approval_gate
 from backend.app.services.audit import log_event as audit_log
 from backend.app.services.embeddings import build_embedding_provider
 from backend.app.services.llm import LLMClient, LLMResult, build_llm_client
@@ -117,6 +120,23 @@ def _compact_history(history: list[dict]) -> list[dict]:
         else:
             out.append(msg)
     return out
+
+
+DESTRUCTIVE_TOOLS = {"send_email", "delete_event", "trash_email"}
+APPROVAL_TIMEOUT_S = 60
+
+
+def _summarize_destructive(name: str, args: dict) -> str:
+    """Short user-facing summary for the approval modal."""
+    if name == "send_email":
+        to = str(args.get("to", "?"))
+        subj = str(args.get("subject", ""))[:60]
+        return f"Send email to {to} — '{subj}'"
+    if name == "delete_event":
+        return f"Cancel calendar event {args.get('event_id', '?')}"
+    if name == "trash_email":
+        return f"Move email {args.get('message_id', '?')} to trash"
+    return f"Run {name}"
 
 
 def _ack_phrase(tool_name: str, args: dict) -> str:
@@ -398,6 +418,17 @@ class Orchestrator:
         if fn is None:
             self._audit_tool_call(name, arguments, error="unknown_tool", latency_ms=0, result_len=0)
             return f"Unknown tool: {name}"
+
+        # Approval gate for destructive tools — pause LLM loop, push WS event,
+        # wait for user to click Allow/Deny in modal, then either run or skip.
+        if name in DESTRUCTIVE_TOOLS:
+            decision = await self._await_approval(name, arguments)
+            if decision != "approved":
+                msg = f"User declined to {_summarize_destructive(name, arguments).lower()}"
+                logger.info("Action rejected by user: %s args=%s", name, arguments)
+                self._audit_tool_call(name, arguments, latency_ms=0, result_len=len(msg), error="user_rejected")
+                return msg
+
         t0 = time.monotonic()
         try:
             raw = await fn(**arguments)  # type: ignore[operator]
@@ -486,6 +517,74 @@ class Orchestrator:
             )
         except Exception as exc:
             logger.debug("audit_log write failed: %r", exc)
+
+    async def _await_approval(self, name: str, arguments: dict) -> str:
+        """Block tool execution until user approves via REST. Returns decision string.
+
+        Steps: persist AgentAction(pending) → emit WS event → wait on
+        asyncio.Event → REST handler resolves → return 'approved' or 'rejected'.
+        On timeout, returns 'rejected' to fail safely.
+        """
+        action_id = str(uuid.uuid4())
+        summary = _summarize_destructive(name, arguments)
+
+        try:
+            self._db.add(models.AgentAction(
+                id=action_id,
+                user_id=self._user_id,
+                type=name,
+                payload_json={"args": arguments, "summary": summary},
+                requires_approval=True,
+                approval_status="pending",
+            ))
+            self._db.commit()
+        except Exception as exc:
+            logger.warning("Failed to persist pending action: %r", exc)
+            self._db.rollback()
+            return "rejected"
+
+        ev = approval_gate.register(action_id, self._user_id)
+        await self._emit({
+            "type": "agent.action_pending",
+            "payload": {
+                "action_id": action_id,
+                "tool": name,
+                "summary": summary,
+                "args": arguments,
+                "timeout_s": APPROVAL_TIMEOUT_S,
+            },
+        })
+
+        try:
+            await asyncio.wait_for(ev.wait(), timeout=APPROVAL_TIMEOUT_S)
+            decision = approval_gate.get_decision(action_id) or "rejected"
+        except asyncio.TimeoutError:
+            decision = "rejected"
+            # Update DB so the audit trail shows timeout cleanly
+            try:
+                row = self._db.query(models.AgentAction).filter(
+                    models.AgentAction.id == action_id,
+                ).first()
+                if row and row.approval_status == "pending":
+                    row.approval_status = "rejected"
+                    row.error_json = {"reason": "approval_timeout"}
+                    self._db.commit()
+            except Exception:
+                self._db.rollback()
+            await self._emit({
+                "type": "agent.action_resolved",
+                "payload": {"action_id": action_id, "decision": "timeout"},
+            })
+        finally:
+            approval_gate.cleanup(action_id)
+
+        # Tell the UI to dismiss the modal in non-timeout cases too
+        if decision != "rejected" or True:  # always notify
+            await self._emit({
+                "type": "agent.action_resolved",
+                "payload": {"action_id": action_id, "decision": decision},
+            })
+        return decision
 
     async def _safe_embed(self, text: str) -> list[float] | None:
         """Embed text or return None if embedder is unavailable / errors."""
