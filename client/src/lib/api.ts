@@ -7,18 +7,14 @@ export type LoginResponse = {
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "http://localhost:8000/api";
 
-export async function loginWithGoogle(): Promise<LoginResponse> {
-  // Backend may take up to 60s on first run while user signs in via popup.
-  // Use AbortController if you need a UI cancel button.
-  const response = await fetch(`${API_BASE}/auth/google`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-  });
+export async function getGoogleAuthUrl(): Promise<string> {
+  const response = await fetch(`${API_BASE}/auth/google/url`);
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
-    throw new Error(data.detail || "Google sign-in failed");
+    throw new Error(data.detail || "Could not get Google sign-in URL");
   }
-  return response.json();
+  const data = await response.json();
+  return data.url as string;
 }
 
 export async function login(email: string, displayName?: string): Promise<LoginResponse> {

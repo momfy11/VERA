@@ -13,6 +13,18 @@ initLogger();
 const MAX_MESSAGE_LENGTH = 2_000;
 const TOKEN_STORAGE_KEY = "vera.session_token";
 
+// Handle Google OAuth callback redirect — runs once at module load.
+// Google redirects to /?token=... or /?auth_error=... after sign-in.
+let _oauthError: string | null = null;
+if (typeof window !== "undefined") {
+  const _p = new URLSearchParams(window.location.search);
+  const _tok = _p.get("token");
+  const _err = _p.get("auth_error");
+  if (_tok) window.localStorage.setItem(TOKEN_STORAGE_KEY, _tok);
+  if (_err) _oauthError = decodeURIComponent(_err);
+  if (_tok || _err) window.history.replaceState({}, "", "/");
+}
+
 export default function App() {
   // Restore previous session from localStorage so closing the browser
   // doesn't force re-login — VERA is meant to feel always-on.
@@ -23,7 +35,7 @@ export default function App() {
     initialToken ? "connecting" : "idle",
   );
   const [sessionToken, setSessionToken] = useState<string | null>(initialToken);
-  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [sessionError, setSessionError] = useState<string | null>(_oauthError);
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [thinkingText, setThinkingText] = useState<string | null>(null);

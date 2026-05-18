@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { loginWithGoogle } from "../lib/api";
+import { getGoogleAuthUrl } from "../lib/api";
 
 type LoginPageProps = {
   status: "idle" | "connecting" | "error";
@@ -31,36 +31,12 @@ export function LoginPage({ status, onStart, onSessionToken, error }: LoginPageP
   const signInWithGoogle = async () => {
     setGoogleBusy(true);
     setGoogleError(null);
-    // Pre-open a popup we control so the OAuth tab is a child window and
-    // auto-close JS works. Backend serves its callback page into THIS window
-    // via redirect; the success page calls window.close() which now succeeds
-    // because we (same origin user gesture) opened it.
-    //
-    // NOTE: backend's OAuth still uses webbrowser.open() server-side which
-    // creates a NEW system browser tab — not our popup. That tab can't
-    // self-close cleanly. This pre-opened popup acts as a "waiting" UI for
-    // the user and shows progress. The real Google tab still appears.
-    const popup = window.open(
-      "about:blank",
-      "vera-google-signin",
-      "width=500,height=620,menubar=no,toolbar=no,location=yes",
-    );
-    if (popup) {
-      popup.document.write(`<!doctype html><html><body
-        style="font-family:system-ui;text-align:center;padding:60px;background:#f7f2ec;color:#1f1d1a">
-        <h2>Signing in to Google…</h2>
-        <p>Complete the Google prompt in the new browser tab.</p>
-        <p style="color:#6d635c">You can close this window once you see VERA load.</p>
-      </body></html>`);
-    }
     try {
-      const res = await loginWithGoogle();
-      onSessionToken(res.session_token);
-      if (popup && !popup.closed) popup.close();
+      const url = await getGoogleAuthUrl();
+      window.location.href = url;
+      // Page navigates away — no need to reset busy state
     } catch (err) {
       setGoogleError(err instanceof Error ? err.message : "Google sign-in failed");
-      if (popup && !popup.closed) popup.close();
-    } finally {
       setGoogleBusy(false);
     }
   };

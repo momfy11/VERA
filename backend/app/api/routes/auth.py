@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import logging
 import secrets
-import threading
 import time
+import urllib.parse
 from collections import defaultdict, deque
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from backend.app.db.session import get_db
@@ -16,7 +17,6 @@ from backend.app.db import models
 from backend.app.schemas.auth import LoginRequest, LoginResponse
 from backend.app.services.google_oauth import (
     GoogleAuthError,
-    OAUTH_LOCAL_PORT,
     SCOPES,
     fetch_user_profile,
     find_client_secret,
@@ -24,7 +24,6 @@ from backend.app.services.google_oauth import (
     gmail_service,
     load_credentials,
     reset_service_cache,
-    run_oauth_with_autoclose,
 )
 
 logger = logging.getLogger(__name__)
@@ -80,104 +79,21 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
 
 
 # ---------------------------------------------------------------------------
-# Sign in with Google
+# Sign in with Google — Web redirect flow
 # ---------------------------------------------------------------------------
 
-# Tracks the in-flight OAuth flow for /auth/google. Only one at a time.
-# Threading.Event signals completion; result_holder carries email/error.
-_google_auth_state = {
-    "in_progress": False,
-    "completed": threading.Event(),
-    "email": None,  # type: str | None
-    "error": None,  # type: str | None
-}
+# CSRF state store: maps state token → issued_at timestamp
+_oauth_states: dict[str, float] = {}
+_OAUTH_STATE_TTL_S = 600
 
 
-def _ensure_google_profile_blocking(timeout_s: int = 90) -> dict:
-    """Return Google user profile {email, name, given_name, picture, ...}.
-
-    Fast path: existing token.json valid + has required scopes → fetch userinfo.
-    Slow path: run auto-close OAuth flow (blocks up to timeout_s).
-
-    Raises GoogleAuthError on failure / timeout / user cancel.
-    """
-    # Fast path: existing token
-    try:
-        creds = load_credentials()
-        profile = fetch_user_profile(creds)
-        if profile.get("email"):
-            return profile
-        # Token valid but profile fetch failed — likely missing scopes (old token).
-        # Fall through and force re-auth so we get the right scopes.
-        logger.info("Token valid but no userinfo — forcing re-auth for new scopes")
-    except GoogleAuthError:
-        pass
-
-    if _google_auth_state["in_progress"]:
-        raise GoogleAuthError("Another Google sign-in is already in progress")
-
-    _google_auth_state["in_progress"] = True
-    _google_auth_state["completed"].clear()
-    _google_auth_state["email"] = None
-    _google_auth_state["error"] = None
-    profile_holder: dict = {}
-
-    def _run_flow() -> None:
-        try:
-            creds = run_oauth_with_autoclose(timeout_s=timeout_s)
-            token_path = get_token_path()
-            token_path.parent.mkdir(parents=True, exist_ok=True)
-            token_path.write_text(creds.to_json())
-            reset_service_cache()
-            profile = fetch_user_profile(creds)
-            profile_holder.update(profile)
-            _google_auth_state["email"] = profile.get("email")
-        except Exception as exc:
-            logger.warning("Google sign-in flow failed: %r", exc)
-            _google_auth_state["error"] = str(exc)
-        finally:
-            _google_auth_state["in_progress"] = False
-            _google_auth_state["completed"].set()
-
-    threading.Thread(target=_run_flow, daemon=True).start()
-
-    finished = _google_auth_state["completed"].wait(timeout=timeout_s + 5)
-    if not finished:
-        raise GoogleAuthError(f"Sign-in timed out after {timeout_s}s")
-    if _google_auth_state["error"]:
-        raise GoogleAuthError(_google_auth_state["error"])
-    if not profile_holder.get("email"):
-        raise GoogleAuthError("Sign-in completed but no email returned")
-    return profile_holder
+def _callback_uri(request: Request) -> str:
+    """Build the OAuth callback URI. Uses X-Forwarded-* headers when behind Caddy."""
+    base = str(request.base_url).rstrip("/")
+    return f"{base}/api/auth/google/callback"
 
 
-@router.post("/auth/google", response_model=LoginResponse)
-def google_login(request: Request, db: Session = Depends(get_db)) -> LoginResponse:
-    """Sign in via Google OAuth.
-
-    Reuses the Desktop OAuth client already configured for Calendar/Gmail.
-    If user has previously authorized (token.json exists), returns immediately.
-    Otherwise launches the OAuth browser flow and blocks up to 60s.
-    """
-    ip = request.client.host if request.client else "unknown"
-    if _login_rate_limited(ip):
-        raise HTTPException(status_code=429, detail="Too many login attempts — slow down")
-
-    try:
-        profile = _ensure_google_profile_blocking(timeout_s=90)
-    except GoogleAuthError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-    email = profile["email"]
-    # Prefer Google's display name; fall back through given_name → email local part
-    display = (
-        profile.get("name")
-        or profile.get("given_name")
-        or email.split("@")[0]
-    )
-
-    # Upsert user by email; refresh display_name from Google on every login so
-    # it stays current even if user changes it in Google account settings.
+def _upsert_google_user(email: str, display: str, db: Session) -> models.User:
     user = db.query(models.User).filter(models.User.email == email).first()
     if not user:
         user = models.User(email=email, display_name=display)
@@ -187,15 +103,85 @@ def google_login(request: Request, db: Session = Depends(get_db)) -> LoginRespon
     elif user.display_name != display:
         user.display_name = display
         db.commit()
+    return user
 
-    session_token = secrets.token_urlsafe(32)
-    session = models.Session(
-        user_id=user.id,
-        started_at=datetime.now(timezone.utc),
-        client_meta_json={"auth": "google"},
-        session_token=session_token,
+
+@router.get("/auth/google/url")
+def google_oauth_url(request: Request) -> dict:
+    """Return the Google authorization URL. Frontend redirects the user there."""
+    from google_auth_oauthlib.flow import Flow
+
+    state = secrets.token_urlsafe(16)
+    now = time.time()
+    _oauth_states[state] = now
+    # Prune expired states
+    expired = [k for k, v in _oauth_states.items() if now - v > _OAUTH_STATE_TTL_S]
+    for k in expired:
+        del _oauth_states[k]
+
+    flow = Flow.from_client_secrets_file(str(find_client_secret()), scopes=SCOPES)
+    flow.redirect_uri = _callback_uri(request)
+    auth_url, _ = flow.authorization_url(
+        access_type="offline",
+        prompt="consent",
+        state=state,
     )
-    db.add(session)
-    db.commit()
+    return {"url": auth_url}
 
-    return LoginResponse(user_id=user.id, session_token=session_token)
+
+@router.get("/auth/google/callback")
+def google_oauth_callback(
+    request: Request,
+    db: Session = Depends(get_db),
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+):
+    """Receive Google OAuth code, exchange for token, create session, redirect to frontend."""
+    from google_auth_oauthlib.flow import Flow
+
+    if error:
+        return RedirectResponse(f"/?auth_error={urllib.parse.quote(error)}")
+    if not state or state not in _oauth_states:
+        return RedirectResponse("/?auth_error=invalid_state")
+    if not code:
+        return RedirectResponse("/?auth_error=no_code")
+
+    del _oauth_states[state]
+
+    try:
+        flow = Flow.from_client_secrets_file(
+            str(find_client_secret()), scopes=SCOPES, state=state
+        )
+        flow.redirect_uri = _callback_uri(request)
+        flow.fetch_token(code=code)
+        creds = flow.credentials
+
+        token_path = get_token_path()
+        token_path.parent.mkdir(parents=True, exist_ok=True)
+        token_path.write_text(creds.to_json())
+        reset_service_cache()
+
+        profile = fetch_user_profile(creds)
+        email = profile.get("email")
+        if not email:
+            return RedirectResponse("/?auth_error=no_email")
+
+        display = profile.get("name") or profile.get("given_name") or email.split("@")[0]
+        user = _upsert_google_user(email, display, db)
+
+        session_token = secrets.token_urlsafe(32)
+        session = models.Session(
+            user_id=user.id,
+            started_at=datetime.now(timezone.utc),
+            client_meta_json={"auth": "google"},
+            session_token=session_token,
+        )
+        db.add(session)
+        db.commit()
+
+        return RedirectResponse(f"/?token={session_token}")
+
+    except Exception as exc:
+        logger.error("Google OAuth callback failed: %r", exc)
+        return RedirectResponse(f"/?auth_error={urllib.parse.quote(str(exc)[:200])}")
