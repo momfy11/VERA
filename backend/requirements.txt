@@ -18,6 +18,11 @@ python-dotenv>=1.0.1
 python-multipart>=0.0.18
 cryptography>=44.0.0
 
+# Google OAuth / API
+google-auth>=2.29.0
+google-auth-oauthlib>=1.2.0
+google-api-python-client>=2.126.0
+
 # Scheduling (Sprint 5)
 apscheduler>=3.10.4
 
