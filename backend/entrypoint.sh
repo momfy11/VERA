@@ -90,10 +90,10 @@ PY
 
 if [ "$HAS_VERSION" = "none" ]; then
     echo "[entrypoint] Fresh DB — stamping alembic head"
-    alembic stamp head
+    python -m alembic stamp head
 else
     echo "[entrypoint] DB already at alembic revision $HAS_VERSION — running upgrade head"
-    alembic upgrade head
+    python -m alembic upgrade head
 fi
 cd /app
 
