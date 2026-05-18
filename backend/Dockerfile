@@ -18,13 +18,18 @@ COPY backend/init_db.py /app/backend/init_db.py
 COPY backend/scripts /app/backend/scripts
 COPY backend/migrations /app/backend/migrations
 COPY backend/alembic.ini /app/backend/alembic.ini
+COPY backend/entrypoint.sh /app/backend/entrypoint.sh
+
+# Normalise line endings (entrypoint.sh may be checked out CRLF on Windows)
+# and make it executable.
+RUN sed -i 's/\r$//' /app/backend/entrypoint.sh && chmod +x /app/backend/entrypoint.sh
 
 # fastembed model cache (~33 MB) goes here on first run
 ENV FASTEMBED_CACHE_DIR=/app/.fastembed_cache
 
 EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
   CMD curl -f http://localhost:8000/api/health || exit 1
 
-# Don't use --reload in prod
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Entrypoint runs DB bootstrap + alembic + pgvector enable, then execs uvicorn.
+CMD ["/app/backend/entrypoint.sh"]

@@ -1,31 +1,33 @@
-# Production overlay: caddy in front for HTTPS + WSS via auto Let's Encrypt.
+# Production overlay: Caddy in front for HTTPS + WSS via auto Let's Encrypt.
 #
-# Usage:
-#   export DOMAIN=vera.example.com
-#   export PUBLIC_API_BASE=https://vera.example.com/api
-#   export PUBLIC_WS_BASE=wss://vera.example.com
-#   export ALLOWED_ORIGINS=https://vera.example.com
+# Usage (all values come from .env at repo root — see .env.production.example):
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 #
-# DNS A record for $DOMAIN must point at the host. Caddy auto-provisions cert.
+# DNS A record for $DOMAIN must point at the host. Caddy auto-provisions cert
+# via HTTP-01. If you have no domain, use a sslip.io subdomain — it resolves
+# any IP without DNS setup. Example: 46-225-81-127.sslip.io -> 46.225.81.127.
 
 services:
   postgres:
     ports: []                    # don't expose DB to host in prod
+    # Postgres user/password/db all come from .env via the variables already
+    # interpolated in docker-compose.yml. Override there if you need rotation.
 
   backend:
     ports: []                    # only Caddy reaches it
     environment:
-      DATABASE_URL: postgresql+psycopg2://vera:vera@postgres:5432/vera
+      # Re-pin DB URL here so the prod overlay doesn't pick up a stale dev
+      # DATABASE_URL from backend/.env.
+      DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER:-vera}:${POSTGRES_PASSWORD:-vera}@postgres:5432/${POSTGRES_DB:-vera}"
       ENVIRONMENT: production
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      ALLOWED_ORIGINS: "${ALLOWED_ORIGINS}"
 
   frontend:
     ports: []
     build:
       args:
-        VITE_API_BASE: ${PUBLIC_API_BASE}
-        VITE_WS_BASE: ${PUBLIC_WS_BASE}
+        VITE_API_BASE: "${PUBLIC_API_BASE}"
+        VITE_WS_BASE: "${PUBLIC_WS_BASE}"
 
   caddy:
     image: caddy:2.8
@@ -33,7 +35,7 @@ services:
       - "80:80"
       - "443:443"
     environment:
-      DOMAIN: ${DOMAIN}
+      DOMAIN: "${DOMAIN}"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data

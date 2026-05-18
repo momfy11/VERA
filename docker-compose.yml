@@ -9,6 +9,8 @@ services:
       - "5433:5432"   # 5433 to avoid clash with host Postgres on 5432
     volumes:
       - vera_pgdata:/var/lib/postgresql/data
+      # Init scripts run once on a fresh data volume.
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-vera}"]
       interval: 10s
@@ -23,8 +25,9 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      # Override DB URL so backend talks to docker postgres, not host's
-      DATABASE_URL: postgresql+psycopg2://vera:vera@postgres:5432/vera
+      # Override DB URL so backend talks to docker postgres, not host's.
+      # POSTGRES_PASSWORD comes from root .env; default 'vera' for dev parity.
+      DATABASE_URL: "postgresql+psycopg2://${POSTGRES_USER:-vera}:${POSTGRES_PASSWORD:-vera}@postgres:5432/${POSTGRES_DB:-vera}"
     volumes:
       - ./backend/credentials:/app/backend/credentials
       - ./logs:/app/logs
@@ -41,9 +44,9 @@ services:
       context: .
       dockerfile: client/Dockerfile
       args:
-        VITE_API_BASE: ${PUBLIC_API_BASE:-http://localhost:8000/api}
-        VITE_WS_BASE: ${PUBLIC_WS_BASE:-ws://localhost:8000}
-        VITE_WAKE_PHRASES: ${VITE_WAKE_PHRASES:-hey vera,vera}
+        VITE_API_BASE: "${PUBLIC_API_BASE:-http://localhost:8000/api}"
+        VITE_WS_BASE: "${PUBLIC_WS_BASE:-ws://localhost:8000}"
+        VITE_WAKE_PHRASES: "${VITE_WAKE_PHRASES:-hey vera,vera}"
     ports:
       - "5173:80"
     depends_on:
