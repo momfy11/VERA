@@ -82,8 +82,8 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
 # Sign in with Google — Web redirect flow
 # ---------------------------------------------------------------------------
 
-# CSRF state store: maps state token → issued_at timestamp
-_oauth_states: dict[str, float] = {}
+# CSRF state store: maps state token → {ts, code_verifier}
+_oauth_states: dict[str, dict] = {}
 _OAUTH_STATE_TTL_S = 600
 
 
@@ -113,10 +113,8 @@ def google_oauth_url(request: Request) -> dict:
 
     state = secrets.token_urlsafe(16)
     now = time.time()
-    _oauth_states[state] = now
     # Prune expired states
-    expired = [k for k, v in _oauth_states.items() if now - v > _OAUTH_STATE_TTL_S]
-    for k in expired:
+    for k in [k for k, v in _oauth_states.items() if now - v["ts"] > _OAUTH_STATE_TTL_S]:
         del _oauth_states[k]
 
     flow = Flow.from_client_secrets_file(str(find_client_secret()), scopes=SCOPES)
@@ -126,6 +124,8 @@ def google_oauth_url(request: Request) -> dict:
         prompt="consent",
         state=state,
     )
+    # Store code_verifier so callback can complete PKCE exchange
+    _oauth_states[state] = {"ts": now, "code_verifier": flow.code_verifier}
     return {"url": auth_url}
 
 
@@ -147,13 +147,14 @@ def google_oauth_callback(
     if not code:
         return RedirectResponse("/?auth_error=no_code")
 
-    del _oauth_states[state]
+    state_data = _oauth_states.pop(state)
 
     try:
         flow = Flow.from_client_secrets_file(
             str(find_client_secret()), scopes=SCOPES, state=state
         )
         flow.redirect_uri = _callback_uri(request)
+        flow.code_verifier = state_data["code_verifier"]
         flow.fetch_token(code=code)
         creds = flow.credentials
 
