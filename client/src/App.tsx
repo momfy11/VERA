@@ -12,6 +12,46 @@ initLogger();
 
 const MAX_MESSAGE_LENGTH = 2_000;
 const TOKEN_STORAGE_KEY = "vera.session_token";
+const MESSAGES_STORAGE_KEY = "vera.messages";
+const MAX_STORED_MESSAGES = 60;
+
+function loadMessages(): ChatMessage[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(MESSAGES_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as ChatMessage[];
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch { /* ignore */ }
+  return [];
+}
+
+function buildGreeting(displayName: string): string {
+  const firstName = displayName.split(/\s+/)[0];
+  const name = firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase();
+  const h = new Date().getHours();
+  const tod = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
+  const pools: Record<string, string[]> = {
+    morning: [
+      `Good morning, ${name}. What's on the agenda?`,
+      `Morning, ${name}. Ready when you are.`,
+      `Good morning, ${name}. What do you need?`,
+    ],
+    afternoon: [
+      `Good afternoon, ${name}. What can I help with?`,
+      `Hey ${name}, what's on your mind?`,
+      `Afternoon, ${name}. What do you need?`,
+    ],
+    evening: [
+      `Good evening, ${name}. Still at it?`,
+      `Evening, ${name}. What's on your plate?`,
+      `Hey ${name}. What do you need tonight?`,
+    ],
+  };
+  const pool = pools[tod];
+  return pool[Math.floor(Math.random() * pool.length)];
+}
 
 // Handle Google OAuth callback redirect — runs once at module load.
 // Google redirects to /?token=... or /?auth_error=... after sign-in.
@@ -40,14 +80,18 @@ export default function App() {
   const [isTyping, setIsTyping] = useState(false);
   const [thinkingText, setThinkingText] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<import("./components/ApprovalModal").PendingAction | null>(null);
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: "welcome",
-      role: "assistant",
-      text: "Good morning. I can help plan your focus blocks and review priorities.",
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>(loadMessages);
 
+  // Persist messages so chat history survives page reloads / app restarts.
+  useEffect(() => {
+    window.localStorage.setItem(
+      MESSAGES_STORAGE_KEY,
+      JSON.stringify(messages.slice(-MAX_STORED_MESSAGES)),
+    );
+  }, [messages]);
+
+  // Increment to force the socket useEffect to re-run (auto-reconnect).
+  const [reconnectKey, setReconnectKey] = useState(0);
   // Track whether the session was closed intentionally so onclose
   // can distinguish a user-initiated stop from an unexpected disconnect.
   const intentionalCloseRef = useRef(false);
@@ -55,6 +99,7 @@ export default function App() {
   useEffect(() => {
     if (!sessionToken) return;
 
+    setSessionStatus("connecting");
     const socket = createSessionSocket();
     setWs(socket);
 
@@ -71,10 +116,9 @@ export default function App() {
         intentionalCloseRef.current = false;
         setSessionStatus("idle");
       } else {
-        window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-        setSessionToken(null);
-        setSessionStatus("error");
-        setSessionError("Connection lost. Please start a new session.");
+        // Network drop / app backgrounded — keep token, reconnect after 3s
+        setSessionStatus("connecting");
+        setTimeout(() => setReconnectKey((k) => k + 1), 3000);
       }
     };
 
@@ -90,14 +134,19 @@ export default function App() {
           setSessionStatus("active");
           const name = message.payload.display_name as string | undefined;
           if (name) {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: crypto.randomUUID(),
-                role: "assistant",
-                text: `Hello, ${name}. I'm VERA — ready when you are.`,
-              },
-            ]);
+            setMessages((prev) => {
+              // Only greet on first-ever session (only the welcome placeholder exists).
+              // Returning users already have history — no greeting needed.
+              // Only greet when no history (first ever use or after clear).
+              if (prev.length > 0) return prev;
+              return [
+                {
+                  id: crypto.randomUUID(),
+                  role: "assistant" as const,
+                  text: buildGreeting(name),
+                },
+              ];
+            });
           }
           return;
         }
@@ -168,7 +217,7 @@ export default function App() {
       intentionalCloseRef.current = true;
       socket.close();
     };
-  }, [sessionToken]);
+  }, [sessionToken, reconnectKey]);
 
   const handleStartSession = async (email: string, displayName?: string) => {
     setSessionError(null);
@@ -186,10 +235,12 @@ export default function App() {
   const handleStopSession = () => {
     intentionalCloseRef.current = true;
     window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+    window.localStorage.removeItem(MESSAGES_STORAGE_KEY);
     ws?.close();
     setSessionToken(null);
     setSessionStatus("idle");
     setIsTyping(false);
+    setMessages([]);
   };
 
   const handleSendText = (text: string) => {
@@ -217,6 +268,11 @@ export default function App() {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: "voice.vad_end", payload: { ts: new Date().toISOString() } }));
     }
+  };
+
+  const handleClearHistory = () => {
+    window.localStorage.removeItem(MESSAGES_STORAGE_KEY);
+    setMessages([]);
   };
 
   if (sessionStatus === "idle" || sessionStatus === "error") {
@@ -253,6 +309,7 @@ export default function App() {
         onSend={handleSendText}
         onVadStart={handleVadStart}
         onVadEnd={handleVadEnd}
+        onClearHistory={handleClearHistory}
       />
       <ToastContainer />
     </>

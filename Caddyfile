@@ -14,8 +14,8 @@
         reverse_proxy backend:8000
     }
 
-    # WebSocket — Caddy auto-detects Upgrade header for WS
-    handle /ws {
+    # WebSocket — /ws and /ws/* (e.g. /ws/wake for wake word)
+    handle /ws* {
         reverse_proxy backend:8000
     }
 

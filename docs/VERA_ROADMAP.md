@@ -3,7 +3,7 @@
 
 ---
 
-## Current State (as of 2026-05-07)
+## Current State (as of 2026-05-19)
 
 | Capability | Status |
 |---|---|
@@ -15,7 +15,7 @@
 | Voice activity detection (VAD) + noise calibration + sensitivity slider | ✅ |
 | Voice-to-text (STT) — Web Speech API | ✅ |
 | Text-to-speech (TTS) — Web Speech API w/ markdown stripping | ✅ |
-| Wake word ("Hey VERA") — Web Speech based | ✅ |
+| Wake word ("Hey VERA") — faster-whisper server-side (offline, all browsers) | ✅ |
 | Pre-tool ack ("Checking your inbox…") | ✅ |
 | Real-time web data (search/news/weather/wiki) | ✅ |
 | Tool use / agent mode (32 tools) | ✅ |
@@ -23,13 +23,15 @@
 | External integrations (Calendar/Gmail/Spotify/Maps) | ✅ |
 | Approval gates for destructive tools | ✅ |
 | Audit log for tool calls | ✅ |
-| pgvector semantic memory | ✅ code, ⚠ extension not yet installed in DB |
+| pgvector semantic memory | ✅ |
 | PWA install + service worker | ✅ |
 | Login page / Main page UI | ✅ |
 | Settings overlay (Integrations / Memories / Suggestions / Settings) | ✅ |
-| localStorage session persistence | ✅ |
+| localStorage session persistence + auto-reconnect | ✅ |
 | Approval modal with countdown | ✅ |
-| Sign in with Google as primary auth | ❌ deferred to POC week 2 |
+| Sign in with Google (Web OAuth redirect, PKCE) | ✅ |
+| Hetzner VPS deploy — Caddy HTTPS + WSS auto TLS | ✅ |
+| Bulk email delete (one confirmation, then execute all) | ✅ |
 | Vision / image upload | ❌ |
 | RAG knowledge base | ❌ |
 | Native mobile wrapper | ❌ |
@@ -179,9 +181,9 @@ VERA gets the ability to act on your machine. **Every destructive or visible act
 
 ### 4.4 Wake Word (added)
 - [x] Web Speech API based wake-word listener — fuzzy phrase match ("hey vera", "vera")
+- [x] **Server-side wake word** — faster-whisper tiny on `/ws/wake`, offline, all browsers including Firefox + iOS Safari
 - [x] Auto-pause during main voice session (no mic conflict)
 - [x] Configurable phrases via `VITE_WAKE_PHRASES`
-- [ ] openWakeWord backend route (offline, private — current impl streams to Google STT)
 - [ ] Custom user-trained "Hey VERA" model
 
 ### 4.3 Vision / Image Understanding
@@ -348,11 +350,13 @@ Each of these would be a curated knowledge base loaded into RAG:
 | 20 | Mic sensitivity calibration | ✅ Done |
 | 21 | TTS markdown stripping | ✅ Done |
 | 22 | Alembic migrations | ✅ Done |
-| 23 | **Sign in with Google** as primary auth | ⏳ POC week 2 |
-| 24 | RAG knowledge base | ⏳ post-POC |
-| 25 | Vision / image upload | ⏳ post-POC |
-| 26 | Terminal / code execution | ⏳ post-POC |
-| 27 | openWakeWord offline | ⏳ post-POC |
-| 28 | Native mobile wrapper | ⏳ post-POC |
-| 29 | MCP client (consume external MCP servers) | ⏳ post-POC, ~2 days |
-| 30 | MCP server (expose VERA tools to other LLMs) | ⏳ post-POC, ~1 day |
+| 23 | **Sign in with Google** as primary auth | ✅ Done |
+| 24 | **Hetzner VPS deploy** — Caddy HTTPS, Docker Compose prod overlay | ✅ Done |
+| 25 | **Wake word offline** — faster-whisper tiny, /ws/wake WebSocket | ✅ Done |
+| 26 | RAG knowledge base | ⏳ next |
+| 27 | Vision / image upload | ⏳ next |
+| 28 | Server-side STT (Whisper) — fallback when Web Speech API unavailable | ⏳ next |
+| 29 | Terminal / code execution | ⏳ post-POC |
+| 30 | Native mobile wrapper | ⏳ post-POC |
+| 31 | MCP client (consume external MCP servers) | ⏳ post-POC, ~2 days |
+| 32 | MCP server (expose VERA tools to other LLMs) | ⏳ post-POC, ~1 day |

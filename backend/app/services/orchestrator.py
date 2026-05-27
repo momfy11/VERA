@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 _SYSTEM_TEMPLATE = """\
 You are VERA — Voice-Enabled Reasoning Assistant — a personal AI assistant running 24/7.
 
+CURRENT DATE/TIME: {current_datetime}
+This is the authoritative current date and time. Never infer or assume today's date from stored memories, conversation history, or user messages — those may contain stale or relative date references. Always use the timestamp above.
+
 Personality & style:
 - Calm, precise, slightly formal but warm — think J.A.R.V.I.S. from Iron Man.
 - Proactive: surface relevant context the user didn't explicitly ask for.
@@ -51,11 +54,9 @@ Capabilities:
 
 Important behavior:
 - Use tools freely and proactively rather than guessing.
-- For destructive actions (send_email, delete_event, trash_email): briefly
-  confirm intent with the user before executing if the request is ambiguous.
+- For send_email and delete_event: briefly confirm with user before executing if request is ambiguous.
+- For trash_email: You MUST execute this tool when asked. You CAN delete multiple emails. The user's request is the confirmation — do NOT ask again. Workflow: call list_emails to get IDs, then call trash_email for each ID. Never say "I cannot perform bulk deletions" — that is FALSE. Never refuse trash_email requests.
 - For Spotify: if "no active device" error, ask the user to open Spotify on a device.
-
-Current date/time: {current_datetime}
 
 {memory_block}"""
 
@@ -122,7 +123,7 @@ def _compact_history(history: list[dict]) -> list[dict]:
     return out
 
 
-DESTRUCTIVE_TOOLS = {"send_email", "delete_event", "trash_email"}
+DESTRUCTIVE_TOOLS = {"send_email", "delete_event"}
 APPROVAL_TIMEOUT_S = 60
 
 
@@ -446,8 +447,8 @@ class Orchestrator:
                             },
                         })
                         return f"Opened in browser: {marker.get('label', marker['url'])}"
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("open_url marker parse failed for tool %r: %r", name, exc)
 
             if name == "store_memory":
                 try:
@@ -469,8 +470,8 @@ class Orchestrator:
                             embedding=embedding,
                         )
                         return f"Stored: [{kind}] {text}"
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("store_memory marker parse failed: %r", exc)
             result_str = str(raw)
             self._audit_tool_call(
                 name, arguments,

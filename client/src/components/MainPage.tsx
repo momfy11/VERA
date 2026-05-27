@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ApprovalModal, type PendingAction } from "./ApprovalModal";
@@ -11,7 +11,7 @@ import type { ChatMessage } from "../lib/types";
 import { useInstallPrompt } from "../lib/useInstallPrompt";
 import { useTTS } from "../lib/useTTS";
 import { useVoiceSession } from "../lib/useVoiceSession";
-import { useWakeWord } from "../lib/useWakeWord";
+import { useWakeWordServer } from "../lib/useWakeWordServer";
 
 type MainPageProps = {
   sessionStatus: "connecting" | "active";
@@ -26,6 +26,7 @@ type MainPageProps = {
   onSend: (text: string) => void;
   onVadStart: () => void;
   onVadEnd: () => void;
+  onClearHistory: () => void;
 };
 
 export function MainPage({
@@ -41,6 +42,7 @@ export function MainPage({
   onSend,
   onVadStart,
   onVadEnd,
+  onClearHistory,
 }: MainPageProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -52,6 +54,25 @@ export function MainPage({
     const n = stored ? Number(stored) : 0.5;
     return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 0.5;
   });
+  const [ttsEnabled, setTtsEnabled] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    const s = window.localStorage.getItem("vera.tts_enabled");
+    return s === null ? true : s === "true";
+  });
+  const [ttsRate, setTtsRate] = useState<number>(() => {
+    if (typeof window === "undefined") return 1.0;
+    const s = window.localStorage.getItem("vera.tts_rate");
+    const n = s ? Number(s) : 1.0;
+    return Number.isFinite(n) ? Math.max(0.5, Math.min(2, n)) : 1.0;
+  });
+  const handleTtsEnabled = useCallback((v: boolean) => {
+    setTtsEnabled(v);
+    window.localStorage.setItem("vera.tts_enabled", String(v));
+  }, []);
+  const handleTtsRate = useCallback((v: number) => {
+    setTtsRate(v);
+    window.localStorage.setItem("vera.tts_rate", String(v));
+  }, []);
   const bottomRef = useRef<HTMLDivElement>(null);
   const sessionActive = sessionStatus === "active";
   const { canInstall, installed, isIOS, promptInstall } = useInstallPrompt();
@@ -68,8 +89,9 @@ export function MainPage({
   // Speak VERA's replies while voice mode is active.
   // Mute STT during TTS so VERA's voice doesn't echo back as a user message.
   const { speak: speakNow } = useTTS({
-    enabled: isRunning,
+    enabled: isRunning && ttsEnabled,
     messages,
+    rate: ttsRate,
     onSpeakStart: () => setMuted(true),
     onSpeakEnd: () => setMuted(false),
   });
@@ -88,10 +110,9 @@ export function MainPage({
   // hands-free trigger VERA. Disable while voice session is already active so
   // Porcupine and our STT don't fight over the mic.
   const wakeEnabled = handsFree && sessionActive && !isRunning;
-  const wake = useWakeWord({
+  const wake = useWakeWordServer({
     enabled: wakeEnabled,
     onDetected: () => {
-      // Start the voice session so STT picks up the user's actual command
       void start();
     },
   });
@@ -133,23 +154,7 @@ export function MainPage({
             value={voiceStatus === "speaking" ? "Speaking" : voiceStatus === "listening" ? "Listening" : "Off"}
             tone={voiceStatus === "speaking" ? "good" : "warn"}
           />
-          {sessionActive && (
-            <button
-              type="button"
-              className={`button ${handsFree ? "" : "ghost"}`}
-              onClick={() => setHandsFree(!handsFree)}
-              title={
-                wake.status === "listening"
-                  ? "Listening for wake word — say it to activate VERA"
-                  : wake.status === "error"
-                    ? `Wake word error: ${wake.error}`
-                    : "Toggle hands-free mode (wake word)"
-              }
-            >
-              {handsFree ? "Hands-free: on" : "Hands-free"}
-              {wake.status === "listening" && " 👂"}
-            </button>
-          )}
+          {/* Hands-free / wake word hidden — to be rebuilt in native Android app */}
           {canInstall && !installed && (
             <button
               type="button"
@@ -220,12 +225,6 @@ export function MainPage({
             />
           </label>
         )}
-        {handsFree && wake.status === "listening" && !isRunning && (
-          <span className="hint-text">Wake word listening…</span>
-        )}
-        {handsFree && wake.status === "error" && (
-          <span className="error-text">Wake: {wake.error}</span>
-        )}
         {interimTranscript && (
           <span className="voice-interim">"{interimTranscript}"</span>
         )}
@@ -282,7 +281,13 @@ export function MainPage({
               <IntegrationsPanel sessionToken={sessionToken} />
               <MemoriesPanel sessionToken={sessionToken} />
               <SuggestionsPanel sessionToken={sessionToken} ws={ws} />
-              <SettingsPanel />
+              <SettingsPanel
+                ttsEnabled={ttsEnabled}
+                onTtsEnabledChange={handleTtsEnabled}
+                ttsRate={ttsRate}
+                onTtsRateChange={handleTtsRate}
+                onClearHistory={onClearHistory}
+              />
             </div>
           </div>
         </>

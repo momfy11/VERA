@@ -43,3 +43,6 @@ pyperclip>=1.8.0
 # Phase 5.1 — semantic memory (embeddings + pgvector)
 fastembed>=0.4.0
 pgvector>=0.3.0
+
+# Wake word detection — offline, private (no Google STT)
+faster-whisper>=1.0.0

@@ -737,7 +737,7 @@ h1 {
   flex-direction: column;
   gap: 16px;
   position: relative;
-  overflow: hidden;
+  overflow: clip;
 }
 
 .panel::after {
@@ -884,6 +884,33 @@ h1 {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.settings-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  background: rgba(214, 107, 63, 0.07);
+  border-radius: 12px;
+  cursor: default;
+}
+
+.settings-slider span {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.settings-slider span em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.settings-slider input[type="range"] {
+  accent-color: var(--accent);
+  width: 100%;
+  cursor: pointer;
 }
 
 .button {

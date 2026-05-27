@@ -16,12 +16,10 @@ from backend.app.db.session import get_db
 from backend.app.db import models
 from backend.app.schemas.auth import LoginRequest, LoginResponse
 from backend.app.services.google_oauth import (
-    GoogleAuthError,
     SCOPES,
     fetch_user_profile,
     find_client_secret,
     get_token_path,
-    gmail_service,
     load_credentials,
     reset_service_cache,
 )

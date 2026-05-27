@@ -79,13 +79,14 @@ logs
 *.ckpt
 *.safetensors
 
-# Benchmarks
-benchmarks/audio/
-benchmarks/*.wav
-benchmarks/*.mp3
-
 # Docker
 .dockerignore
 
 # OS
 Thumbs.db
+
+# Examensarbete — rapport och referensfiler (ej för deployment)
+AI_teori_del_2_rapport.pdf
+Mall_Projektbeskrivning för examensarbete (2).pdf
+Learning Bot.txt
+VERA_rapport.md

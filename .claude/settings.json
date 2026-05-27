@@ -17,7 +17,24 @@
       "Read(//c/Users/momfy/AppData/Local/npm-cache/_logs/**)",
       "Bash(npm run *)",
       "Bash(pg_isready -h localhost -p 5432)",
-      "Bash(vera/Scripts/python -c \"import socket; s=socket.socket\\(\\); s.settimeout\\(2\\); s.connect_ex\\(\\('localhost', 5432\\)\\) and print\\('Port 5432 NOT reachable'\\) or print\\('Port 5432 OK'\\)\")"
+      "Bash(vera/Scripts/python -c \"import socket; s=socket.socket\\(\\); s.settimeout\\(2\\); s.connect_ex\\(\\('localhost', 5432\\)\\) and print\\('Port 5432 NOT reachable'\\) or print\\('Port 5432 OK'\\)\")",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 -o StrictHostKeyChecking=no root@46.62.225.46 \"cd /opt/VERA && git pull origin main && docker compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache backend && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate backend\")",
+      "Bash(scp -i ~/.ssh/vera_deploy_ed25519 -o StrictHostKeyChecking=no backend/migrations/env.py backend/requirements.txt backend/entrypoint.sh root@46.62.225.46:/opt/VERA/backend/migrations/env.py)",
+      "Bash(scp -i ~/.ssh/vera_deploy_ed25519 -o StrictHostKeyChecking=no backend/requirements.txt root@46.62.225.46:/opt/VERA/backend/requirements.txt)",
+      "Bash(scp -i ~/.ssh/vera_deploy_ed25519 -o StrictHostKeyChecking=no backend/entrypoint.sh root@46.62.225.46:/opt/VERA/backend/entrypoint.sh)",
+      "Bash(scp -i ~/.ssh/vera_deploy_ed25519 -o StrictHostKeyChecking=no backend/migrations/env.py root@46.62.225.46:/opt/VERA/backend/migrations/env.py)",
+      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 -o StrictHostKeyChecking=no root@46.62.225.46 \"cd /opt/VERA && docker compose -f docker-compose.yml -f docker-compose.prod.yml build --no-cache backend && docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --force-recreate backend\")",
+      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 -o StrictHostKeyChecking=no root@46.62.225.46 \"sleep 15 && cd /opt/VERA && docker compose -f docker-compose.yml -f docker-compose.prod.yml ps && echo '---' && docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=25 backend\")",
+      "PowerShell(icacls \"$env:USERPROFILE\\\\.ssh\\\\vera_deploy\" 2>&1)",
+      "PowerShell(icacls \"$env:USERPROFILE\\\\.ssh\\\\vera_deploy_ed25519\" 2>&1)",
+      "PowerShell(icacls \"$env:USERPROFILE\\\\.ssh\\\\vera_deploy_ed25519\" /inheritance:r; icacls \"$env:USERPROFILE\\\\.ssh\\\\vera_deploy_ed25519\" /grant \"NT instans\\\\SYSTEM:F\"; icacls \"$env:USERPROFILE\\\\.ssh\\\\vera_deploy_ed25519\" /grant \"${env:USERDOMAIN}\\\\${env:USERNAME}:F\" 2>&1; icacls \"$env:USERPROFILE\\\\.ssh\\\\vera_deploy_ed25519\")",
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\momfy\\\\repos\\\\VERA\" -Recurse -Force)",
+      "Bash(Select-Object FullName)",
+      "Bash(grep -n \"pass$\" \"c:\\\\Users\\\\momfy\\\\repos\\\\VERA\\\\backend\\\\app\\\\services\\\\orchestrator.py\")",
+      "Bash(grep -v \"^$\")",
+      "Bash(git rm *)"
     ]
   }
 }

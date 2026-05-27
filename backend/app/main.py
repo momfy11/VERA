@@ -14,6 +14,8 @@ from backend.app.core.config import settings
 from backend.app.observability.logger import configure_logging
 from backend.app.api.routes import actions, auth, google, health, memories, suggestions
 from backend.app.api.ws import websocket_endpoint
+from backend.app.api.wake_ws import wake_word_endpoint
+from backend.app.api.stt_ws import stt_endpoint
 from backend.app.services.scheduler import proactive_scheduler
 
 configure_logging()
@@ -75,10 +77,16 @@ class _NoCORSForWebSocket:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "websocket":
-            logger.info("WS upgrade path=%s — dispatching directly to endpoint", scope.get("path"))
+            path = scope.get("path", "")
+            logger.info("WS upgrade path=%s — dispatching directly to endpoint", path)
             from fastapi import WebSocket  # noqa: PLC0415
             ws = WebSocket(scope, receive=receive, send=send)
-            await websocket_endpoint(ws)
+            if path == "/ws/wake":
+                await wake_word_endpoint(ws)
+            elif path == "/ws/stt":
+                await stt_endpoint(ws)
+            else:
+                await websocket_endpoint(ws)
         else:
             await self._http_app(scope, receive, send)
 

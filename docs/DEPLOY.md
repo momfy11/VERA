@@ -1,10 +1,10 @@
 # VERA — Production deployment
 
-Target: Hetzner Cloud (Ubuntu 22.04 / 24.04) at `46.225.81.127`. Should work
+Target: Hetzner Cloud (Ubuntu 22.04 / 24.04) at `46.62.225.46`. Should work
 on any Debian/Ubuntu host with at least 2 GB RAM and 20 GB disk. The same
 flow applies to DigitalOcean, Linode, Vultr, etc.
 
-End state: VERA serving at `https://46-225-81-127.sslip.io` with auto TLS,
+End state: VERA serving at `https://46-62-225-46.sslip.io` with auto TLS,
 HTTPS-only (HTTP redirects), and the PWA installable on phone.
 
 ---
@@ -48,7 +48,7 @@ SSH deploy key — both options are covered below.
 ## 2. SSH to the server
 
 ```bash
-ssh -i ~/.ssh/hetzner_key root@46.225.81.127
+ssh -i ~/.ssh/vera_deploy_ed25519 root@46.62.225.46
 ```
 
 ---
@@ -125,16 +125,16 @@ Set at minimum:
 
 | Key | Value |
 |---|---|
-| `DOMAIN` | `46-225-81-127.sslip.io` |
-| `PUBLIC_API_BASE` | `https://46-225-81-127.sslip.io/api` |
-| `PUBLIC_WS_BASE` | `wss://46-225-81-127.sslip.io` |
-| `ALLOWED_ORIGINS` | `https://46-225-81-127.sslip.io` |
+| `DOMAIN` | `46-62-225-46.sslip.io` |
+| `PUBLIC_API_BASE` | `https://46-62-225-46.sslip.io/api` |
+| `PUBLIC_WS_BASE` | `wss://46-62-225-46.sslip.io` |
+| `ALLOWED_ORIGINS` | `https://46-62-225-46.sslip.io` |
 | `POSTGRES_PASSWORD` | output of `openssl rand -hex 24` |
 
 > Why sslip.io? You don't own a domain yet and Let's Encrypt won't issue a
 > cert for a bare IP. sslip.io is a public wildcard DNS that resolves any
-> IP-shaped subdomain back to that IP. So `46-225-81-127.sslip.io` →
-> `46.225.81.127`. No DNS configuration required. Replace with your real
+> IP-shaped subdomain back to that IP. So `46-62-225-46.sslip.io` →
+> `46.62.225.46`. No DNS configuration required. Replace with your real
 > domain later — just edit `.env` and re-deploy.
 
 ### 5b. `backend/.env` (runtime secrets)
@@ -157,7 +157,7 @@ At minimum:
 | `SPOTIFY_*` | optional, for Spotify tools |
 
 You can copy `backend/.env` from your dev machine if it already has all keys
-filled in (`scp -i ~/.ssh/hetzner_key backend/.env root@46.225.81.127:/opt/VERA/backend/.env`).
+filled in (`scp -i ~/.ssh/vera_deploy_ed25519 backend/.env root@46.62.225.46:/opt/VERA/backend/.env`).
 
 ### 5c. Google OAuth client secret (optional, only for Gmail/Calendar tools)
 
@@ -166,9 +166,9 @@ The Google Cloud OAuth Desktop-app client secret lives at
 
 ```powershell
 # from your laptop, not the server
-scp -i ~/.ssh/hetzner_key `
+scp -i ~/.ssh/vera_deploy_ed25519 `
     C:\Users\momfy\repos\VERA\backend\credentials\credentials.json `
-    root@46.225.81.127:/opt/VERA/backend/credentials/credentials.json
+    root@46.62.225.46:/opt/VERA/backend/credentials/credentials.json
 ```
 
 You'll authorize Google from the running UI's *Integrations* panel after
@@ -201,13 +201,13 @@ placeholder POSTGRES_PASSWORD").
 ## 7. Verify
 
 ```bash
-curl https://46-225-81-127.sslip.io/api/health
+curl https://46-62-225-46.sslip.io/api/health
 # expect: {"status":"ok"}
 ```
 
 Then in a browser on your phone:
 
-1. Open `https://46-225-81-127.sslip.io`.
+1. Open `https://46-62-225-46.sslip.io`.
 2. Log in.
 3. Tap the **Install VERA** button (Android Chrome) or Share → Add to
    Home Screen (iOS Safari).
@@ -249,7 +249,7 @@ $COMPOSE down -v
 
 When you have one, e.g. `vera.example.com`:
 
-1. Add an `A` record pointing the domain at `46.225.81.127`.
+1. Add an `A` record pointing the domain at `46.62.225.46`.
 2. Edit `/opt/VERA/.env` and update `DOMAIN`, `PUBLIC_API_BASE`,
    `PUBLIC_WS_BASE`, `ALLOWED_ORIGINS` to the new hostname.
 3. Rebuild + restart:
@@ -272,8 +272,8 @@ Inside Docker this shouldn't happen, but if it does:
 `docker compose build --no-cache frontend`.
 
 **Cert issuance fails: "no valid A record".**  sslip.io subdomain must
-exactly match the IP. `46-225-81-127.sslip.io` resolves to `46.225.81.127`.
-Verify: `dig +short 46-225-81-127.sslip.io`.
+exactly match the IP. `46-62-225-46.sslip.io` resolves to `46.62.225.46`.
+Verify: `dig +short 46-62-225-46.sslip.io`.
 
 **Cert issuance fails: "port 80 already in use".**  Something else on the
 host is bound to :80. `ss -tlnp | grep :80`. Usually nginx or apache from

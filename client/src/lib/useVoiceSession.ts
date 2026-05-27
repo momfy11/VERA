@@ -14,6 +14,20 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
+const WS_BASE = (import.meta.env.VITE_WS_BASE as string | undefined) ?? "ws://localhost:8000";
+const STT_TARGET_RATE = 16000;
+
+function _downsample(input: Float32Array, inputRate: number): Int16Array {
+  const ratio = inputRate / STT_TARGET_RATE;
+  const len = Math.floor(input.length / ratio);
+  const out = new Int16Array(len);
+  for (let i = 0; i < len; i++) {
+    const s = input[Math.floor(i * ratio)];
+    out[i] = Math.max(-32768, Math.min(32767, s * 32768));
+  }
+  return out;
+}
+
 export type VoiceStatus = "idle" | "listening" | "speaking" | "error";
 
 type VoiceSessionOptions = {
@@ -60,19 +74,28 @@ declare global {
   }
 }
 
+// In standalone PWA (WebAPK) mode, Web Speech API often fails silently —
+// force server STT so voice works on the installed mobile app.
+const _isStandalone =
+  typeof window !== "undefined" &&
+  (window.matchMedia?.("(display-mode: standalone)").matches ||
+    (navigator as any).standalone === true);
+
 const SpeechRecognitionImpl =
-  (typeof window !== "undefined" &&
-    (window.SpeechRecognition || window.webkitSpeechRecognition)) ||
-  null;
+  _isStandalone
+    ? null  // force server STT in installed PWA
+    : (typeof window !== "undefined" &&
+        (window.SpeechRecognition || window.webkitSpeechRecognition)) ||
+      null;
 
 export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSessionState {
   const {
     onVadStart, onVadEnd, onStatusChange, onSpeechFinal,
-    threshold = 0.04,
+    threshold = 0.03,
     hangoverMs = 400,
-    sensitivity = 0.4,         // stricter by default — TV bleed common
-    confidenceThreshold = 0.6, // drop garbled transcripts more aggressively
-    vadGateMs = 1800,
+    sensitivity = 0.5,
+    confidenceThreshold = 0.4, // mobile STT often returns lower confidence
+    vadGateMs = 4000,           // generous window — STT finalizes late on mobile
   } = options;
 
   const [status, setStatus] = useState<VoiceStatus>("idle");
@@ -100,8 +123,28 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
   const sttErrorCountRef = useRef(0);
   // Drop STT results while TTS is speaking (prevents echo feedback loop)
   const mutedRef = useRef(false);
+  // Timestamp of last barge-in — STT results within BARGE_IN_GRACE_MS are
+  // dropped because the browser STT buffer still contains VERA's speech.
+  const bargeInAtRef = useRef<number | null>(null);
+  const BARGE_IN_GRACE_MS = 800;
+  // Server STT refs (used when SpeechRecognition unavailable)
+  const sttWsRef = useRef<WebSocket | null>(null);
+  const sttProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const setMuted = useCallback((muted: boolean) => {
+    // Early return if already at target — prevents TTS onerror from resetting
+    // VAD state after a barge-in already cleared the mute flag.
+    if (mutedRef.current === muted) return;
     mutedRef.current = muted;
+    if (muted) {
+      // Discard server STT buffer — don't transcribe VERA's own voice
+      if (sttWsRef.current?.readyState === WebSocket.OPEN) {
+        sttWsRef.current.send(JSON.stringify({ type: "clear" }));
+      }
+    } else {
+      // Reset VAD state on unmute so VERA's voice doesn't leave a stale "speaking" imprint
+      speakingRef.current = false;
+      lastVoiceAtRef.current = null;
+    }
   }, []);
 
   const updateStatus = useCallback(
@@ -137,7 +180,16 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
     }
     sttRunningRef.current = false;
     sttErrorCountRef.current = 0;
+    // Stop server STT
+    sttProcessorRef.current?.disconnect();
+    sttProcessorRef.current = null;
+    if (sttWsRef.current) {
+      sttWsRef.current.onclose = null;
+      sttWsRef.current.close(1000);
+      sttWsRef.current = null;
+    }
     noiseFloorRef.current = 0;
+    bargeInAtRef.current = null;
     setNoiseFloor(0);
     setInterimTranscript("");
 
@@ -217,18 +269,39 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
         const effThreshold = Math.max(threshold, noiseFloorRef.current * gain);
 
         if (rms > effThreshold) {
+          if (mutedRef.current) {
+            // User barge-in while VERA is talking — cancel TTS and unmute immediately.
+            // Direct mutation avoids the React update cycle delay; the setMuted
+            // early-return guard prevents a later onerror callback from overwriting state.
+            speechSynthesis.cancel();
+            mutedRef.current = false;
+            speakingRef.current = false;
+            lastVoiceAtRef.current = null;
+            bargeInAtRef.current = now;
+            if (sttWsRef.current?.readyState === WebSocket.OPEN) {
+              sttWsRef.current.send(JSON.stringify({ type: "clear" }));
+            }
+            // Restart browser STT to flush its internal buffer — it has been
+            // recording VERA's TTS audio and would emit it as a user utterance.
+            if (recognitionRef.current && sttRunningRef.current) {
+              try { recognitionRef.current.stop(); } catch { /* ignore */ }
+            }
+          }
           lastVoiceAtRef.current = now;
           if (!speakingRef.current) {
             speakingRef.current = true;
-            speechSynthesis.cancel();
             updateStatus("speaking");
             onVadStart?.();
           }
-        } else if (speakingRef.current && lastVoiceAtRef.current !== null) {
+        } else if (speakingRef.current && lastVoiceAtRef.current !== null && !mutedRef.current) {
           if (now - lastVoiceAtRef.current > hangoverMs) {
             speakingRef.current = false;
             updateStatus("listening");
             onVadEnd?.();
+            // Server STT: flush buffered audio — only when not muted
+            if (sttWsRef.current?.readyState === WebSocket.OPEN) {
+              sttWsRef.current.send(JSON.stringify({ type: "flush" }));
+            }
           }
         }
 
@@ -265,6 +338,13 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
             setInterimTranscript("");
             return;
           }
+          // Drop results immediately after a barge-in — browser STT buffer still
+          // contains VERA's buffered speech from before recognition was restarted.
+          if (bargeInAtRef.current !== null && performance.now() - bargeInAtRef.current < BARGE_IN_GRACE_MS) {
+            setInterimTranscript("");
+            return;
+          }
+          bargeInAtRef.current = null;
           let interim = "";
           for (let i = event.resultIndex; i < event.results.length; i++) {
             const result = event.results[i];
@@ -312,6 +392,50 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
 
         recognition.start();
         sttRunningRef.current = true;
+      } else if (!SpeechRecognitionImpl && onSpeechFinal) {
+        // ── Server STT fallback (Firefox / iOS Safari) ────────────────
+        // Streams 16kHz int16 PCM to /ws/stt while VAD is active.
+        // On VAD end the loop sends {"type":"flush"} and Whisper transcribes.
+        const ws = new WebSocket(`${WS_BASE}/ws/stt`);
+        ws.binaryType = "arraybuffer";
+        sttWsRef.current = ws;
+
+        ws.onmessage = (e) => {
+          if (mutedRef.current) return;
+          try {
+            const msg = JSON.parse(typeof e.data === "string" ? e.data : "{}");
+            if (msg.is_final && msg.text) {
+              setInterimTranscript("");
+              onSpeechFinal(msg.text);
+            }
+          } catch { /* ignore */ }
+        };
+
+        ws.onerror = () => setError("Server STT unavailable — check connection");
+
+        ws.onopen = () => {
+          // ScriptProcessor captures PCM; only sends while VAD is active
+          const processor = audioContext.createScriptProcessor(4096, 1, 1);
+          sttProcessorRef.current = processor;
+
+          let pending = new Int16Array(0);
+          processor.onaudioprocess = (e) => {
+            if (ws.readyState !== WebSocket.OPEN) return;
+            if (!speakingRef.current || mutedRef.current) return;
+            const chunk = _downsample(e.inputBuffer.getChannelData(0), audioContext.sampleRate);
+            const combined = new Int16Array(pending.length + chunk.length);
+            combined.set(pending);
+            combined.set(chunk, pending.length);
+            pending = combined;
+            while (pending.length >= 1280) {
+              ws.send(pending.slice(0, 1280).buffer);
+              pending = pending.slice(1280);
+            }
+          };
+
+          source.connect(processor);
+          processor.connect(audioContext.destination);
+        };
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Microphone error");
