@@ -53,6 +53,24 @@ function buildGreeting(displayName: string): string {
   return pool[Math.floor(Math.random() * pool.length)];
 }
 
+function buildWelcome(displayName: string): string {
+  const firstName = displayName.split(/\s+/)[0];
+  const name = firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase();
+  return `Hi ${name}, welcome to VERA! Here's what I can do for you:
+
+**📅 Google Calendar** — Check your schedule, create or update events, set reminders.
+
+**📧 Gmail** — Read your emails, draft and send messages on your behalf.
+
+**🧠 Memory** — I remember your preferences and facts across sessions so you don't have to repeat yourself.
+
+**🎙️ Voice input** — Use the mic button to talk to me hands-free.
+
+**💬 Just chat** — Ask me anything: planning, writing, research, calculations, or just a conversation.
+
+You can always access Settings (⚙️) to manage integrations, memories, and voice options. What can I help you with?`;
+}
+
 // Handle Google OAuth callback redirect — runs once at module load.
 // Google redirects to /?token=... or /?auth_error=... after sign-in.
 let _oauthError: string | null = null;
@@ -133,17 +151,15 @@ export default function App() {
         if (message.type === "server.hello") {
           setSessionStatus("active");
           const name = message.payload.display_name as string | undefined;
+          const isFirst = message.payload.first_login === true;
           if (name) {
             setMessages((prev) => {
-              // Only greet on first-ever session (only the welcome placeholder exists).
-              // Returning users already have history — no greeting needed.
-              // Only greet when no history (first ever use or after clear).
-              if (prev.length > 0) return prev;
+              if (prev.length > 0 && !isFirst) return prev;
               return [
                 {
                   id: crypto.randomUUID(),
                   role: "assistant" as const,
-                  text: buildGreeting(name),
+                  text: isFirst ? buildWelcome(name) : buildGreeting(name),
                 },
               ];
             });
@@ -243,11 +259,12 @@ export default function App() {
     setMessages([]);
   };
 
-  const handleSendText = (text: string) => {
+  const handleSendText = (text: string, imageData?: string, imageMime?: string) => {
     const trimmed = text.trim().slice(0, MAX_MESSAGE_LENGTH);
-    if (!trimmed) return;
+    if (!trimmed && !imageData) return;
 
-    setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "user", text: trimmed }]);
+    const displayText = trimmed || (imageData ? "📷 Image" : "");
+    setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "user", text: displayText }]);
 
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       setSessionError("Not connected — please start a new session.");
@@ -255,7 +272,12 @@ export default function App() {
     }
 
     setIsTyping(true);
-    ws.send(JSON.stringify({ type: "client.message", payload: { text: trimmed } }));
+    const payload: Record<string, string> = { text: trimmed };
+    if (imageData) {
+      payload.image_data = imageData;
+      payload.image_mime = imageMime ?? "image/jpeg";
+    }
+    ws.send(JSON.stringify({ type: "client.message", payload }));
   };
 
   const handleVadStart = () => {

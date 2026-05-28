@@ -45,6 +45,8 @@ type VoiceSessionOptions = {
   confidenceThreshold?: number;
   /** Drop STT results when no VAD-active period in this window before final. Default 2000ms. */
   vadGateMs?: number;
+  /** BCP-47 language tag for browser STT. Default "sv-SE". */
+  lang?: string;
 };
 
 type VoiceSessionState = {
@@ -96,6 +98,7 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
     sensitivity = 0.5,
     confidenceThreshold = 0.4, // mobile STT often returns lower confidence
     vadGateMs = 4000,           // generous window — STT finalizes late on mobile
+    lang = "sv-SE",
   } = options;
 
   const [status, setStatus] = useState<VoiceStatus>("idle");
@@ -319,7 +322,7 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
         recognitionRef.current = recognition;
         recognition.continuous = true;
         recognition.interimResults = true;
-        recognition.lang = "en-US";
+        recognition.lang = lang;
 
         recognition.onerror = (event: any) => {
           // "no-speech" and "aborted" are normal continuous-mode events

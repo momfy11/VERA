@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ApprovalModal, type PendingAction } from "./ApprovalModal";
@@ -23,7 +23,7 @@ type MainPageProps = {
   pendingAction: PendingAction | null;
   onActionResolved: () => void;
   onStop: () => void;
-  onSend: (text: string) => void;
+  onSend: (text: string, imageData?: string, imageMime?: string) => void;
   onVadStart: () => void;
   onVadEnd: () => void;
   onClearHistory: () => void;
@@ -46,6 +46,8 @@ export function MainPage({
 }: MainPageProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [input, setInput] = useState("");
+  const [pendingImage, setPendingImage] = useState<{ data: string; mime: string; preview: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [handsFree, setHandsFree] = useState(false);
   // Mic sensitivity 0..1. Restored from localStorage so user's tuning sticks.
   const [sensitivity, setSensitivityState] = useState<number>(() => {
@@ -65,6 +67,14 @@ export function MainPage({
     const n = s ? Number(s) : 1.0;
     return Number.isFinite(n) ? Math.max(0.5, Math.min(2, n)) : 1.0;
   });
+  const [lang, setLangState] = useState<string>(() => {
+    if (typeof window === "undefined") return "sv-SE";
+    return window.localStorage.getItem("vera.lang") ?? "sv-SE";
+  });
+  const handleLangChange = useCallback((v: string) => {
+    setLangState(v);
+    window.localStorage.setItem("vera.lang", v);
+  }, []);
   const handleTtsEnabled = useCallback((v: boolean) => {
     setTtsEnabled(v);
     window.localStorage.setItem("vera.tts_enabled", String(v));
@@ -79,6 +89,7 @@ export function MainPage({
 
   const { status: voiceStatus, error: voiceError, isRunning, interimTranscript, start, stop, setMuted, setSensitivity, noiseFloor } = useVoiceSession({
     sensitivity,
+    lang,
     onVadStart,
     onVadEnd,
     onSpeechFinal: (text) => {
@@ -132,10 +143,53 @@ export function MainPage({
   }, [messages, isTyping]);
 
   const handleSend = () => {
-    if (!input.trim()) return;
-    onSend(input.trim());
+    if (!input.trim() && !pendingImage) return;
+    onSend(input.trim(), pendingImage?.data, pendingImage?.mime);
     setInput("");
+    setPendingImage(null);
   };
+
+  const processImageFile = useCallback((file: File) => {
+    const mime = file.type || "image/jpeg";
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const MAX = 1024;
+      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+      const dataUrl = canvas.toDataURL(mime, 0.82);
+      const base64 = dataUrl.split(",")[1];
+      setPendingImage({ data: base64, mime, preview: dataUrl });
+    };
+    img.src = objectUrl;
+  }, []);
+
+  const handleImagePick = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (file) processImageFile(file);
+  };
+
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLInputElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          processImageFile(file);
+          return;
+        }
+      }
+    }
+  }, [processImageFile]);
 
   return (
     <div className="main-page">
@@ -245,21 +299,55 @@ export function MainPage({
       </div>
 
       <div className="main-input">
-        <input
-          placeholder="Type a message or press the mic…"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-          disabled={!sessionActive}
-        />
-        <button type="button" className="button" onClick={handleSend} disabled={!sessionActive}>
-          Send
-        </button>
+        {pendingImage && (
+          <div className="image-preview-wrap">
+            <img src={pendingImage.preview} alt="Attached" className="image-preview-thumb" />
+            <button
+              type="button"
+              className="image-preview-remove"
+              onClick={() => setPendingImage(null)}
+              title="Remove image"
+            >✕</button>
+          </div>
+        )}
+        <div className="main-input-row">
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            ref={fileInputRef}
+            style={{ display: "none" }}
+            onChange={handleImagePick}
+          />
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={!sessionActive}
+            title="Attach a photo"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+              <circle cx="12" cy="13" r="4"/>
+            </svg>
+          </button>
+          <input
+            placeholder="Type a message or press the mic…"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
+            }}
+            onPaste={handlePaste}
+            disabled={!sessionActive}
+          />
+          <button type="button" className="button" onClick={handleSend} disabled={!sessionActive}>
+            Send
+          </button>
+        </div>
       </div>
 
       {settingsOpen && (
@@ -286,6 +374,8 @@ export function MainPage({
                 onTtsEnabledChange={handleTtsEnabled}
                 ttsRate={ttsRate}
                 onTtsRateChange={handleTtsRate}
+                lang={lang}
+                onLangChange={handleLangChange}
                 onClearHistory={onClearHistory}
               />
             </div>

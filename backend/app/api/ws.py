@@ -27,7 +27,7 @@ from backend.app.services.orchestrator import Orchestrator
 
 # ── Security constants ──────────────────────────────────────────────────────
 _HELLO_TIMEOUT_SECONDS = 10
-_MAX_MESSAGE_LENGTH = 4_096
+_MAX_MESSAGE_LENGTH = 2 * 1024 * 1024  # 2 MB — supports inline base64 image uploads
 _RATE_LIMIT_MESSAGES = 60
 _RATE_LIMIT_WINDOW_SECONDS = 60
 
@@ -182,12 +182,18 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         manager.connect(user.id, websocket)
         rate_limiter = _RateLimiter(_RATE_LIMIT_MESSAGES, _RATE_LIMIT_WINDOW_SECONDS)
 
+        is_first = bool(user.first_login)
+        if is_first:
+            user.first_login = False
+            db.commit()
+
         await websocket.send_text(
             json.dumps({
                 "type": "server.hello",
                 "payload": {
                     "ts": datetime.now(timezone.utc).isoformat(),
                     "display_name": user.display_name or user.email,
+                    "first_login": is_first,
                 },
             })
         )
@@ -228,15 +234,20 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 continue
 
             event_type = str(data.get("type") or "")
-            payload = data.get("payload") if isinstance(data.get("payload"), dict) else {}
+            _raw_payload = data.get("payload")
+            payload: dict = _raw_payload if isinstance(_raw_payload, dict) else {}
 
             if event_type:
-                _log_session_event(db, session.id, event_type, payload)
+                # Strip image_data from DB log — too large and not useful as audit trail
+                log_payload = {k: v for k, v in payload.items() if k != "image_data"}
+                _log_session_event(db, session.id, event_type, log_payload)
 
             if event_type in {"client.message", "stt.final"}:
                 text = payload.get("text") if isinstance(payload.get("text"), str) else ""
-                if text:
-                    response = await orchestrator.handle_text(text)
+                image_data = payload.get("image_data") if isinstance(payload.get("image_data"), str) else None
+                image_mime = payload.get("image_mime") if isinstance(payload.get("image_mime"), str) else None
+                if text or image_data:
+                    response = await orchestrator.handle_text(text, image_data, image_mime)
                     # Send any tool-emitted side events (open_url etc.) before the reply
                     for ev in orchestrator.drain_events():
                         await websocket.send_text(json.dumps(ev))

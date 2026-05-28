@@ -29,6 +29,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     display_name: Mapped[str] = mapped_column(String(255), nullable=True)
+    first_login: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"), default=True)
 
     settings = relationship("UserSettings", back_populates="user", uselist=False)
 

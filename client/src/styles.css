@@ -230,14 +230,21 @@ body {
 
 .main-input {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 8px;
   padding: 12px 24px 16px;
   background: var(--panel);
   border-top: 1px solid rgba(31, 29, 26, 0.08);
   flex-shrink: 0;
 }
 
-.main-input input {
+.main-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.main-input-row input {
   flex: 1;
   border-radius: 999px;
   border: 1px solid rgba(31, 29, 26, 0.2);
@@ -247,9 +254,42 @@ body {
   background: white;
 }
 
-.main-input input:focus {
+.main-input-row input:focus {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+.image-preview-wrap {
+  position: relative;
+  display: inline-flex;
+  align-self: flex-start;
+}
+
+.image-preview-thumb {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid rgba(31, 29, 26, 0.15);
+}
+
+.image-preview-remove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(31, 29, 26, 0.7);
+  color: white;
+  font-size: 11px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  line-height: 1;
 }
 
 .icon-btn {
@@ -884,6 +924,28 @@ h1 {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.settings-select-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--surface);
+  border-radius: 12px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.settings-select-row select {
+  border: 1px solid rgba(31, 29, 26, 0.2);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  background: white;
+  cursor: pointer;
 }
 
 .settings-slider {

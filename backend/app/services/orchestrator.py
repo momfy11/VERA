@@ -34,6 +34,11 @@ You are VERA — Voice-Enabled Reasoning Assistant — a personal AI assistant r
 CURRENT DATE/TIME: {current_datetime}
 This is the authoritative current date and time. Never infer or assume today's date from stored memories, conversation history, or user messages — those may contain stale or relative date references. Always use the timestamp above.
 
+Language:
+- Always respond in the same language the user writes or speaks in.
+- If the user writes in Swedish, respond entirely in Swedish. If in English, respond in English.
+- Never mix languages in a single reply unless the user does.
+
 Personality & style:
 - Calm, precise, slightly formal but warm — think J.A.R.V.I.S. from Iron Man.
 - Proactive: surface relevant context the user didn't explicitly ask for.
@@ -311,17 +316,38 @@ class Orchestrator:
     # Public
     # ------------------------------------------------------------------
 
-    async def handle_text(self, text: str) -> str:
+    async def handle_text(
+        self,
+        text: str,
+        image_data: str | None = None,
+        image_mime: str | None = None,
+    ) -> str:
+        effective_text = text or ("What's in this image?" if image_data else "")
+
         # Embed the user's query so retrieve() can do semantic search.
-        query_embedding = await self._safe_embed(text)
+        query_embedding = await self._safe_embed(effective_text)
         memory_items = self._memory.retrieve(self._db, query_embedding=query_embedding, limit=8)
         system_prompt = self._build_system_prompt(memory_items)
+
+        # Build user content — plain text or multimodal list when image attached.
+        # Gemini (and any OpenAI-compatible vision model) accepts the image_url part.
+        if image_data:
+            user_content: str | list = [
+                {"type": "text", "text": effective_text},
+                {"type": "image_url", "image_url": {
+                    "url": f"data:{image_mime or 'image/jpeg'};base64,{image_data}",
+                }},
+            ]
+            persist_text = effective_text + " [image attached]"
+        else:
+            user_content = effective_text
+            persist_text = effective_text
 
         # Truncate long history messages so they don't bloat the request.
         # Free-tier LLMs have ~8K TPM — verbose markdown tables (e.g. email
         # listings) eat that fast on a multi-turn conversation.
         compact_history = _compact_history(self._history)
-        working: list[dict] = compact_history + [{"role": "user", "content": text}]
+        working: list[dict] = compact_history + [{"role": "user", "content": user_content}]
 
         reply = ""
         tool_rounds = 0
@@ -376,12 +402,12 @@ class Orchestrator:
         if not reply:
             reply = "I didn't get a response from my reasoning engine. Please try again."
 
-        # Persist both turns
-        self._persist_message("user", text)
+        # Persist both turns (store plain text only — no base64 in DB)
+        self._persist_message("user", persist_text)
         self._persist_message("assistant", reply)
 
-        # Update in-memory history
-        self._history.append({"role": "user", "content": text})
+        # Update in-memory history (plain text; image is ephemeral — one turn only)
+        self._history.append({"role": "user", "content": persist_text})
         self._history.append({"role": "assistant", "content": reply})
 
         # Compress history if it's growing too long
@@ -397,7 +423,7 @@ class Orchestrator:
         async def _bg_extract() -> None:
             db = SessionLocal()
             try:
-                await _llm_extract_memories_bg(llm, embedder, user_id, db, text, reply)
+                await _llm_extract_memories_bg(llm, embedder, user_id, db, persist_text, reply)
             except Exception as exc:
                 logger.debug("Background memory extraction error: %r", exc)
             finally:
