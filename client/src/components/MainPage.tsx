@@ -67,14 +67,12 @@ export function MainPage({
     const n = s ? Number(s) : 1.0;
     return Number.isFinite(n) ? Math.max(0.5, Math.min(2, n)) : 1.0;
   });
-  const [lang, setLangState] = useState<string>(() => {
-    if (typeof window === "undefined") return "en-US";
-    return window.localStorage.getItem("vera.lang") ?? "en-US";
+  // Language fixed to en-US until multilang TTS is solved. Clear any stale localStorage value.
+  const [lang] = useState<string>(() => {
+    if (typeof window !== "undefined") window.localStorage.removeItem("vera.lang");
+    return "en-US";
   });
-  const handleLangChange = useCallback((v: string) => {
-    setLangState(v);
-    window.localStorage.setItem("vera.lang", v);
-  }, []);
+  const handleLangChange = useCallback((_v: string) => { /* no-op — lang fixed */ }, []);
   const handleTtsEnabled = useCallback((v: boolean) => {
     setTtsEnabled(v);
     window.localStorage.setItem("vera.tts_enabled", String(v));
