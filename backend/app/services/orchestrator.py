@@ -61,7 +61,9 @@ Capabilities:
 Important behavior:
 - Use tools freely and proactively rather than guessing.
 - For send_email and delete_event: briefly confirm with user before executing if request is ambiguous.
-- For trash_email: You MUST execute this tool when asked. You CAN delete multiple emails. The user's request is the confirmation — do NOT ask again. Workflow: call list_emails to get IDs, then call trash_email for each ID. Never say "I cannot perform bulk deletions" — that is FALSE. Never refuse trash_email requests.
+- For trash_email: ALWAYS require confirmation before deleting — the system will show an approval modal automatically. You CAN delete multiple emails in bulk; call list_emails to get IDs, then trash_email for each. Never say you cannot perform bulk deletions.
+  Exception: if stored memories show the user has set preference "skip trash_email confirmation", skip asking and proceed directly.
+  If the user says anything like "skip confirmation for email deletion" or "just delete without asking", immediately call store_memory with kind="preference" and text="skip trash_email confirmation", then confirm you have saved this preference.
 - For Spotify: if "no active device" error, ask the user to open Spotify on a device.
 
 {memory_block}"""
@@ -129,7 +131,7 @@ def _compact_history(history: list[dict]) -> list[dict]:
     return out
 
 
-DESTRUCTIVE_TOOLS = {"send_email", "delete_event"}
+DESTRUCTIVE_TOOLS = {"send_email", "delete_event", "trash_email"}
 APPROVAL_TIMEOUT_S = 60
 
 
@@ -449,8 +451,13 @@ class Orchestrator:
 
         # Approval gate for destructive tools — pause LLM loop, push WS event,
         # wait for user to click Allow/Deny in modal, then either run or skip.
+        # Exception: trash_email bypasses gate if user has stored a skip preference.
         if name in DESTRUCTIVE_TOOLS:
-            decision = await self._await_approval(name, arguments)
+            skip_gate = False
+            if name == "trash_email":
+                memories = self._memory.retrieve(self._db, limit=50)
+                skip_gate = any("skip trash_email confirmation" in m.lower() for m in memories)
+            decision = "approved" if skip_gate else await self._await_approval(name, arguments)
             if decision != "approved":
                 msg = f"User declined to {_summarize_destructive(name, arguments).lower()}"
                 logger.info("Action rejected by user: %s args=%s", name, arguments)

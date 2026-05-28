@@ -59,19 +59,29 @@ export function ApprovalModal({ pending, sessionToken, onResolved }: ApprovalMod
           <span className="approval-timer" title="Auto-rejects when timer runs out">{secondsLeft}s</span>
         </div>
         <p className="approval-summary">{pending.summary}</p>
-        <details className="approval-details">
-          <summary>Show details</summary>
-          <table className="approval-args">
-            <tbody>
-              {argRows.map(([k, v]) => (
-                <tr key={k}>
-                  <th>{k}</th>
-                  <td>{typeof v === "string" ? v : JSON.stringify(v)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </details>
+
+        {pending.tool === "send_email" ? (
+          <div className="approval-email-draft">
+            <div className="approval-email-row"><span>To</span><span>{String(pending.args.to ?? "")}</span></div>
+            {pending.args.cc && <div className="approval-email-row"><span>Cc</span><span>{String(pending.args.cc)}</span></div>}
+            <div className="approval-email-row"><span>Subject</span><span>{String(pending.args.subject ?? "")}</span></div>
+            <div className="approval-email-body">{String(pending.args.body ?? pending.args.message ?? "")}</div>
+          </div>
+        ) : (
+          <details className="approval-details">
+            <summary>Show details</summary>
+            <table className="approval-args">
+              <tbody>
+                {argRows.map(([k, v]) => (
+                  <tr key={k}>
+                    <th>{k}</th>
+                    <td>{typeof v === "string" ? v : JSON.stringify(v)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </details>
+        )}
         {error && <p className="error-text">{error}</p>}
         <div className="approval-actions">
           <button

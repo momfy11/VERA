@@ -446,6 +446,38 @@ body {
   color: var(--ink);
 }
 
+.approval-email-draft {
+  border: 1px solid rgba(31, 29, 26, 0.12);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 0.88rem;
+}
+
+.approval-email-row {
+  display: flex;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(31, 29, 26, 0.08);
+  background: var(--surface);
+}
+
+.approval-email-row span:first-child {
+  color: var(--muted);
+  font-weight: 600;
+  min-width: 52px;
+  flex-shrink: 0;
+}
+
+.approval-email-body {
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  max-height: 200px;
+  overflow-y: auto;
+  background: white;
+}
+
 .approval-details {
   font-size: 0.85rem;
 }
