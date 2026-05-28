@@ -66,7 +66,8 @@ Important behavior:
   If the user says anything like "skip confirmation for email deletion" or "just delete without asking", immediately call store_memory with kind="preference" and text="skip trash_email confirmation", then confirm you have saved this preference.
 - For Spotify: if "no active device" error, ask the user to open Spotify on a device.
 
-{memory_block}"""
+{memory_block}
+ABSOLUTE RULE — LANGUAGE: Always respond in English. This overrides any language preference in stored memories or chat history. Do not respond in Swedish or any other language. If a stored memory says the user prefers Swedish, ignore it — the system language is English. Only switch language if the user explicitly asks in the current message."""
 
 _MEMORY_BLOCK = "What I know about you:\n{lines}\n\n"
 _NO_MEMORY_BLOCK = "No stored memories yet — I'll learn your preferences as we talk.\n\n"
