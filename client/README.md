@@ -1,7 +1,7 @@
 # VERA Client (PWA)
 
-React 18 + Vite + TypeScript. Markdown-rendered chat. Web Speech API STT/TTS.
-Wake word ("Hey VERA"). PWA installable. Mic sensitivity calibration.
+React 18 + Vite + TypeScript. Markdown-rendered chat. Web Speech API STT/TTS (en-US).
+Camera capture + clipboard paste image input. PWA installable. Mic sensitivity calibration.
 Approval modal for destructive tool calls.
 
 ## Setup
@@ -59,8 +59,8 @@ src/
     types.ts
     logger.ts               — console.error/warn → POST /api/log
     useVoiceSession.ts      — VAD + STT + mute + sensitivity + noise calibration
-    useTTS.ts               — Web Speech API + markdown stripping
-    useWakeWord.ts          — Web Speech API based wake-word listener
+    useTTS.ts               — Web Speech API TTS + markdown stripping (en-US)
+    useWakeWordServer.ts    — server-side wake word via faster-whisper (disabled pending native app)
     useInstallPrompt.ts     — PWA install button helper
     stripMarkdown.ts        — strip md syntax for natural TTS
   styles.css                — single global stylesheet
@@ -75,7 +75,6 @@ Optional overrides:
 ```
 VITE_API_BASE=http://localhost:8000/api
 VITE_WS_BASE=ws://localhost:8000
-VITE_WAKE_PHRASES=hey vera,vera
 ```
 
 For production builds, see `docker-compose.prod.yml` for build-time injection.

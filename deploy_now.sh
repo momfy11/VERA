@@ -46,12 +46,22 @@ fi
 
 say "Staging and committing..."
 git add -A 2>/dev/null || say "WARN: git add failed (lock) -- pushing whatever is staged"
-git diff --cached --quiet && git status --short | grep -q . \
-    && git commit -m "prod: Docker stack, Caddy HTTPS, deploy script, PWA WebAPK" 2>/dev/null \
-    || say "Nothing new to commit or lock active -- continuing"
+# Commit only if there are staged changes (diff --cached exits 1 when changes exist)
+if ! git diff --cached --quiet 2>/dev/null; then
+    TIMESTAMP=$(date '+%Y-%m-%d %H:%M')
+    git commit -m "deploy: $TIMESTAMP" \
+        || say "WARN: commit failed (may be a hook issue) -- continuing"
+else
+    say "Nothing to commit"
+fi
 
 say "Pushing to GitHub..."
-git push origin main && say "GitHub up to date" || say "WARN: push failed -- continuing with direct file copy"
+if git push origin main; then
+    say "GitHub up to date"
+else
+    say "WARN: push to GitHub failed -- deploy will still continue via tarball"
+    say "      Run 'git push origin main' manually after deploy"
+fi
 
 # --------------------------------------------------------------------------
 # 3. Pack repo and ship to server

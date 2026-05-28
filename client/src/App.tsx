@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { LoginPage } from "./components/LoginPage";
 import { MainPage } from "./components/MainPage";
 import { ToastContainer, pushToast } from "./components/Toasts";
-import { login } from "./lib/api";
+import { login, logout } from "./lib/api";
 import { initLogger } from "./lib/logger";
 import type { ChatMessage } from "./lib/types";
 import { createSessionSocket, WsMessage } from "./lib/ws";
@@ -250,6 +250,8 @@ export default function App() {
 
   const handleStopSession = () => {
     intentionalCloseRef.current = true;
+    const token = window.localStorage.getItem(TOKEN_STORAGE_KEY);
+    if (token) void logout(token);
     window.localStorage.removeItem(TOKEN_STORAGE_KEY);
     window.localStorage.removeItem(MESSAGES_STORAGE_KEY);
     ws?.close();

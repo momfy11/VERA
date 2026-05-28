@@ -111,6 +111,13 @@ export async function deleteMemory(sessionToken: string, memoryId: string): Prom
   if (!response.ok) throw new Error("Failed to delete memory");
 }
 
+export async function logout(sessionToken: string): Promise<void> {
+  await fetch(`${API_BASE}/auth/logout`, {
+    method: "POST",
+    headers: { "X-Session-Token": sessionToken },
+  }).catch(() => {/* best-effort — token removed from client regardless */});
+}
+
 export async function googleDisconnect(sessionToken: string): Promise<void> {
   const response = await fetch(`${API_BASE}/google/disconnect`, {
     method: "POST",
