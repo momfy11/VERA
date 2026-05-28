@@ -42,14 +42,7 @@ export function SettingsPanel({
   return (
     <section className="panel">
       <h2>Controls</h2>
-      <label className="settings-select-row">
-        <span>Voice language</span>
-        <select value={lang} onChange={(e) => onLangChange(e.target.value)}>
-          {LANGUAGES.map((l) => (
-            <option key={l.value} value={l.value}>{l.label}</option>
-          ))}
-        </select>
-      </label>
+      {/* Language selector hidden — TTS fixed to en-US until multilang voice is solved */}
       <div className="toggle">
         <span>Voice read-aloud</span>
         <input

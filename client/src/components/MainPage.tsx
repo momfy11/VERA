@@ -68,8 +68,8 @@ export function MainPage({
     return Number.isFinite(n) ? Math.max(0.5, Math.min(2, n)) : 1.0;
   });
   const [lang, setLangState] = useState<string>(() => {
-    if (typeof window === "undefined") return "sv-SE";
-    return window.localStorage.getItem("vera.lang") ?? "sv-SE";
+    if (typeof window === "undefined") return "en-US";
+    return window.localStorage.getItem("vera.lang") ?? "en-US";
   });
   const handleLangChange = useCallback((v: string) => {
     setLangState(v);

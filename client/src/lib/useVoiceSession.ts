@@ -98,7 +98,7 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
     sensitivity = 0.5,
     confidenceThreshold = 0.4, // mobile STT often returns lower confidence
     vadGateMs = 4000,           // generous window — STT finalizes late on mobile
-    lang = "sv-SE",
+    lang = "en-US",
   } = options;
 
   const [status, setStatus] = useState<VoiceStatus>("idle");
