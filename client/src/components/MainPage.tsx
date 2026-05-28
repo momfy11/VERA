@@ -49,6 +49,15 @@ export function MainPage({
   const [pendingImage, setPendingImage] = useState<{ data: string; mime: string; preview: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [handsFree, setHandsFree] = useState(false);
+  const [micPermission, setMicPermission] = useState<"granted" | "denied" | "prompt" | "unknown">("unknown");
+
+  useEffect(() => {
+    if (!navigator.permissions) return;
+    navigator.permissions.query({ name: "microphone" as PermissionName }).then((result) => {
+      setMicPermission(result.state as "granted" | "denied" | "prompt");
+      result.onchange = () => setMicPermission(result.state as "granted" | "denied" | "prompt");
+    }).catch(() => { /* browser may not support microphone permission query */ });
+  }, []);
   // Mic sensitivity 0..1. Restored from localStorage so user's tuning sticks.
   const [sensitivity, setSensitivityState] = useState<number>(() => {
     if (typeof window === "undefined") return 0.5;
@@ -281,7 +290,25 @@ export function MainPage({
           <span className="voice-interim">"{interimTranscript}"</span>
         )}
         {voiceError && <span className="error-text">{voiceError}</span>}
+        {micPermission === "denied" && !isRunning && (
+          <span className="mic-permission-banner error-text">
+            Microphone blocked.{" "}
+            <strong>Click the lock icon in Chrome's address bar → Site settings → Allow microphone</strong>,
+            then reload the page.
+          </span>
+        )}
         <div className="voice-bar-actions">
+          {micPermission === "prompt" && !isRunning && (
+            <button
+              type="button"
+              className="button"
+              onClick={() => start().catch(console.error)}
+              disabled={!sessionActive}
+              title="Click to allow microphone access"
+            >
+              Allow microphone
+            </button>
+          )}
           <button
             type="button"
             className="button"

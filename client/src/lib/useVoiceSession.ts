@@ -441,7 +441,14 @@ export function useVoiceSession(options: VoiceSessionOptions = {}): VoiceSession
         };
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Microphone error");
+      const name = err instanceof Error ? (err as any).name : "";
+      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        setError("Microphone blocked. Open Chrome's address bar lock icon → Site settings → Allow microphone.");
+      } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+        setError("No microphone found. Plug one in and try again.");
+      } else {
+        setError(err instanceof Error ? err.message : "Microphone error");
+      }
       updateStatus("error");
     }
   }, [hangoverMs, onVadEnd, onVadStart, onSpeechFinal, status, threshold, updateStatus]);
