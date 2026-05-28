@@ -6,7 +6,7 @@ import secrets
 import time
 import urllib.parse
 from collections import defaultdict, deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -67,6 +67,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     session = models.Session(
         user_id=user.id,
         started_at=datetime.now(timezone.utc),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
         client_meta_json={},
         session_token=session_token,
     )
@@ -173,6 +174,7 @@ def google_oauth_callback(
         session = models.Session(
             user_id=user.id,
             started_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
             client_meta_json={"auth": "google"},
             session_token=session_token,
         )
@@ -184,3 +186,23 @@ def google_oauth_callback(
     except Exception as exc:
         logger.error("Google OAuth callback failed: %r", exc)
         return RedirectResponse(f"/?auth_error={urllib.parse.quote(str(exc)[:200])}")
+
+
+@router.post("/auth/logout")
+def logout(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Invalidate the session token so it can no longer be used."""
+    token: str | None = request.headers.get("X-Session-Token")
+    if not token:
+        return {"ok": True}  # already logged out / no-op
+    session = (
+        db.query(models.Session)
+        .filter(models.Session.session_token == token, models.Session.ended_at.is_(None))
+        .first()
+    )
+    if session:
+        session.ended_at = datetime.now(timezone.utc)
+        db.commit()
+    return {"ok": True}

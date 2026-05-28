@@ -30,9 +30,25 @@ def get_user_by_token(db: Session, token: str | None) -> models.User:
     if not token:
         raise HTTPException(status_code=401, detail="Missing session token")
 
-    session = db.query(models.Session).filter(models.Session.session_token == token).first()
+    now = datetime.now(timezone.utc)
+    session = (
+        db.query(models.Session)
+        .filter(
+            models.Session.session_token == token,
+            models.Session.ended_at.is_(None),
+        )
+        .first()
+    )
     if not session:
-        raise HTTPException(status_code=401, detail="Invalid session token")
+        raise HTTPException(status_code=401, detail="Invalid or expired session token")
+
+    # Check expiry only when expires_at is set
+    if session.expires_at is not None:
+        exp = session.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if exp < now:
+            raise HTTPException(status_code=401, detail="Session expired")
 
     user = db.query(models.User).filter(models.User.id == session.user_id).first()
     if not user:

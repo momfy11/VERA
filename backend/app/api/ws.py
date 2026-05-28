@@ -37,11 +37,24 @@ _RATE_LIMIT_WINDOW_SECONDS = 60
 def _get_session_from_token(db: Session, token: str | None) -> models.Session | None:
     if not token:
         return None
-    return (
+    from datetime import datetime, timezone as _tz
+    session = (
         db.query(models.Session)
-        .filter(models.Session.session_token == token)
+        .filter(
+            models.Session.session_token == token,
+            models.Session.ended_at.is_(None),
+        )
         .first()
     )
+    if session is None:
+        return None
+    if session.expires_at is not None:
+        exp = session.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=_tz.utc)
+        if exp < datetime.now(_tz.utc):
+            return None
+    return session
 
 
 def _log_session_event(
@@ -184,6 +197,19 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
         is_first = bool(user.first_login)
         if is_first:
+            # Existing users who already have prior sessions should not see the
+            # first-login welcome — the migration set DEFAULT TRUE for all rows.
+            prior_sessions = (
+                db.query(models.Session)
+                .filter(
+                    models.Session.user_id == user.id,
+                    models.Session.id != session.id,
+                )
+                .limit(1)
+                .count()
+            )
+            if prior_sessions > 0:
+                is_first = False
             user.first_login = False
             db.commit()
 

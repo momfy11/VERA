@@ -51,6 +51,7 @@ class Session(Base):
     user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     ended_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     client_meta_json: Mapped[dict] = mapped_column(JSONB, default=dict)
     session_token: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
 
