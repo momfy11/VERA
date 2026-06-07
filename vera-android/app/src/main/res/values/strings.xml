@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VERA</string>
+    <string name="accessibility_service_description">Allows VERA to interact with other apps on your behalf — open, read, and control any app using voice commands.</string>
+</resources>

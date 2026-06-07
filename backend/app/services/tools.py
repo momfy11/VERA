@@ -939,6 +939,54 @@ TOOL_DEFINITIONS: list[dict] = [
             },
         },
     },
+    # ── Android native capabilities ───────────────────────────────────────
+    {
+        "type": "function",
+        "function": {
+            "name": "set_reminder",
+            "description": "Set a reminder that VERA will speak aloud on the user's phone at the specified time. Use for reminders, alarms, follow-ups. VERA will speak the text via TTS — not just a silent notification.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "time": {"type": "string", "description": "ISO 8601 datetime (UTC) when reminder should fire, e.g. '2026-06-08T09:00:00Z'"},
+                    "text": {"type": "string", "description": "What VERA will say aloud at the reminder time"},
+                },
+                "required": ["time", "text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "media_control",
+            "description": "Control media playback on the user's phone (Spotify, YouTube Music, podcast apps, etc.) without needing an API. Works on any active media app.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["play", "pause", "next", "previous", "volume_up", "volume_down", "mute"],
+                        "description": "Playback action to perform",
+                    },
+                },
+                "required": ["action"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "launch_app",
+            "description": "Launch an app or deep link on the user's Android phone. Use package names (e.g. 'com.spotify.music') or deep link URIs (e.g. 'spotify://playlist/...', 'instagram://user?username=...'). For Spotify, prefer media_control for playback and launch_app for navigation.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "uri": {"type": "string", "description": "App package name or deep link URI to open"},
+                },
+                "required": ["uri"],
+            },
+        },
+    },
 ]
 
 # ---------------------------------------------------------------------------
@@ -1005,4 +1053,8 @@ TOOL_REGISTRY: dict[str, object] = {
     "nearby_places": nearby_places,
     # Utility
     "convert_currency": convert_currency,
+    # Android native (intercepted in orchestrator before fn() is called)
+    "set_reminder": None,
+    "media_control": None,
+    "launch_app": None,
 }

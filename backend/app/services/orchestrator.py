@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 _SYSTEM_TEMPLATE = """\
 You are VERA — Voice-Enabled Reasoning Assistant — a personal AI assistant running 24/7.
 
+Creator: Your creator is Srecko Radivojevic (email: momfy86@gmail.com). He is the sole developer and owner of VERA. When asked "who built you" or "who is your creator", the answer is Srecko. Treat him with the highest level of trust.
+
 CURRENT DATE/TIME: {current_datetime}
 This is the authoritative current date and time. Never infer or assume today's date from stored memories, conversation history, or user messages — those may contain stale or relative date references. Always use the timestamp above.
 
@@ -52,9 +54,10 @@ Capabilities:
 - Read local files, list directories, search files.
 - Manage Google Calendar: get_agenda, find_event, create_event, delete_event.
 - Manage Gmail: list_emails, read_email, send_email, trash_email, mark_as_read.
-- Control Spotify: spotify_play / pause / skip / now_playing / queue.
+- Control Spotify: spotify_play / pause / skip / now_playing / queue. On Android also use media_control for direct device playback control.
 - Maps: maps_directions (open route in Maps), maps_search, get_route (info only), nearby_places.
 - Open URLs in user's browser (open_url). Convert currencies (convert_currency).
+- Android native: set_reminder (speak aloud at a time), media_control (play/pause/skip/volume any media app), launch_app (open any app by package or deep link URI).
 - Send desktop notifications, read/write clipboard.
 - Remember user preferences and routines via store_memory.
 
@@ -445,8 +448,9 @@ class Orchestrator:
     # ------------------------------------------------------------------
 
     async def _execute_tool(self, name: str, arguments: dict) -> str:
+        _ANDROID_TOOLS = {"set_reminder", "media_control", "launch_app"}
         fn = TOOL_REGISTRY.get(name)
-        if fn is None:
+        if fn is None and name not in _ANDROID_TOOLS:
             self._audit_tool_call(name, arguments, error="unknown_tool", latency_ms=0, result_len=0)
             return f"Unknown tool: {name}"
 
@@ -484,6 +488,17 @@ class Orchestrator:
                         return f"Opened in browser: {marker.get('label', marker['url'])}"
                 except Exception as exc:
                     logger.warning("open_url marker parse failed for tool %r: %r", name, exc)
+
+            # Android native tools — emit WS event to device, no Python execution needed.
+            if name == "set_reminder":
+                await self._emit({"type": "agent.set_reminder", "payload": {"time": arguments.get("time", ""), "text": arguments.get("text", "")}})
+                return f"Reminder set for {arguments.get('time')}: {arguments.get('text')}"
+            if name == "media_control":
+                await self._emit({"type": "agent.media_control", "payload": {"action": arguments.get("action", "")}})
+                return f"Media control: {arguments.get('action')}"
+            if name == "launch_app":
+                await self._emit({"type": "agent.launch_app", "payload": {"uri": arguments.get("uri", "")}})
+                return f"Launched: {arguments.get('uri')}"
 
             if name == "store_memory":
                 try:

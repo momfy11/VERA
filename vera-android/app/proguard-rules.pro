@@ -1,0 +1,5 @@
+-keep class com.vera.android.data.api.** { *; }
+-keep class com.vera.android.data.ws.** { *; }
+-keepattributes *Annotation*
+-keepclassmembers class kotlinx.serialization.json.** { *** Companion; }
+-keepclasseswithmembers class **$$serializer { *; }
