@@ -38,7 +38,7 @@ coverage.xml
 venv/
 ENV/
 env/
-vera/
+/vera/
 .venv
 
 # Environment variables
