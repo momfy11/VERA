@@ -56,4 +56,5 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.security.crypto)
     implementation(libs.play.services.location)
+    implementation(libs.google.material)
 }
