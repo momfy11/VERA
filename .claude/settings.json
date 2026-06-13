@@ -34,7 +34,9 @@
       "Bash(Select-Object FullName)",
       "Bash(grep -n \"pass$\" \"c:\\\\Users\\\\momfy\\\\repos\\\\VERA\\\\backend\\\\app\\\\services\\\\orchestrator.py\")",
       "Bash(grep -v \"^$\")",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "Bash(grep -E \"kt$|java\")",
+      "Bash(git check-ignore *)"
     ]
   }
 }

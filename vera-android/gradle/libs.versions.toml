@@ -1,17 +1,18 @@
 [versions]
-agp = "8.5.0"
+agp = "8.11.2"
 kotlin = "2.0.0"
 coreKtx = "1.13.1"
 lifecycle = "2.8.3"
 activityCompose = "1.9.0"
-composeBom = "2024.06.00"
+composeBom = "2024.05.00"
 okhttp = "4.12.0"
 kotlinxSerializationJson = "1.7.1"
 securityCrypto = "1.1.0-alpha06"
 coroutines = "1.8.1"
 navigationCompose = "2.7.7"
-playServicesLocation = "21.3.0"
+playServicesLocation = "21.2.0"
 googleMaterial = "1.12.0"
+localBroadcastManager = "1.1.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -32,6 +33,7 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 security-crypto = { group = "androidx.security", name = "security-crypto", version.ref = "securityCrypto" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 google-material = { group = "com.google.android.material", name = "material", version.ref = "googleMaterial" }
+local-broadcast-manager = { group = "androidx.localbroadcastmanager", name = "localbroadcastmanager", version.ref = "localBroadcastManager" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

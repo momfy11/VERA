@@ -44,16 +44,16 @@ class ReminderReceiver : BroadcastReceiver() {
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "vera:reminder")
             wakeLock.acquire(10_000L)
 
-            TextToSpeech(context) { status ->
+            var tts: TextToSpeech? = null
+            tts = TextToSpeech(context) { status ->
                 if (status == TextToSpeech.SUCCESS) {
-                    val tts = it as? TextToSpeech ?: return@TextToSpeech
-                    tts.language = Locale.ENGLISH
-                    tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "reminder")
-                    tts.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
+                    tts?.language = Locale.ENGLISH
+                    tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "reminder")
+                    tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
                         override fun onStart(id: String?) {}
-                        override fun onDone(id: String?) { wakeLock.release(); tts.shutdown() }
+                        override fun onDone(id: String?) { wakeLock.release(); tts?.shutdown() }
                         @Deprecated("Deprecated in Java")
-                        override fun onError(id: String?) { wakeLock.release(); tts.shutdown() }
+                        override fun onError(id: String?) { wakeLock.release(); tts?.shutdown() }
                     })
                 } else {
                     wakeLock.release()

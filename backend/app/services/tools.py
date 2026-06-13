@@ -833,7 +833,7 @@ TOOL_DEFINITIONS: list[dict] = [
         "type": "function",
         "function": {
             "name": "open_url",
-            "description": "Open any URL in the user's browser (or default app on phone). Use sparingly.",
+            "description": "Open a web URL in the browser. For WEB LINKS ONLY (https:// URLs). NEVER use this to open apps — use launch_app instead. Examples of what NOT to do: open_url('https://spotify.com') — WRONG. For apps always use launch_app.",
             "parameters": {
                 "type": "object",
                 "properties": {

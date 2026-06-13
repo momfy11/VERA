@@ -25,7 +25,7 @@ import okhttp3.OkHttpClient
 fun SuggestionsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { SecurePrefs(context) }
-    val api = remember { VeraApi(OkHttpClient()) }
+    val api = remember { VeraApi(com.vera.android.data.buildHttpClient()) }
     val scope = rememberCoroutineScope()
     var suggestions by remember { mutableStateOf<List<Suggestion>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }

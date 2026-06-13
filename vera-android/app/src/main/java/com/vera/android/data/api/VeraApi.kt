@@ -10,7 +10,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
-private const val BASE_URL = "https://46.62.225.46"
+private const val BASE_URL = "https://vera-app.hopto.org"
 private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
 private val json = Json { ignoreUnknownKeys = true }
 
@@ -22,7 +22,7 @@ private val json = Json { ignoreUnknownKeys = true }
 @Serializable data class SuggestionList(val items: List<Suggestion>)
 @Serializable data class SuggestionAction(val action: String)
 
-class VeraApi(private val http: OkHttpClient) {
+class VeraApi(private val http: OkHttpClient = com.vera.android.data.buildHttpClient()) {
 
     suspend fun login(email: String, displayName: String): LoginResponse = withContext(Dispatchers.IO) {
         val body = json.encodeToString(LoginRequest(email, displayName)).toRequestBody(JSON_MEDIA)
