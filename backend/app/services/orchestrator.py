@@ -63,7 +63,6 @@ Capabilities:
 - Read local files, list directories, search files.
 - Manage Google Calendar: get_agenda, find_event, create_event, delete_event.
 - Manage Gmail: list_emails, read_email, send_email, trash_email, mark_as_read.
-- Control Spotify: spotify_play / pause / skip / now_playing / queue. On Android also use media_control for direct device playback control.
 - Maps: maps_directions (open route in Maps), maps_search, get_route (info only), nearby_places.
 - Open URLs in user's browser (open_url). Convert currencies (convert_currency).
 - Android native: set_reminder (speak aloud at a time), media_control (play/pause/skip/volume any media app), launch_app (open any app by package or deep link URI).
@@ -76,8 +75,6 @@ Important behavior:
 - For trash_email: ALWAYS require confirmation before deleting — the system will show an approval modal automatically. You CAN delete multiple emails in bulk; call list_emails to get IDs, then trash_email for each. Never say you cannot perform bulk deletions.
   Exception: if stored memories show the user has set preference "skip trash_email confirmation", skip asking and proceed directly.
   If the user says anything like "skip confirmation for email deletion" or "just delete without asking", immediately call store_memory with kind="preference" and text="skip trash_email confirmation", then confirm you have saved this preference.
-- For Spotify: if "no active device" error, ask the user to open Spotify on a device.
-
 {memory_block}
 ABSOLUTE RULE — LANGUAGE: Always respond in English. This overrides any language preference in stored memories or chat history. Do not respond in Swedish or any other language. If a stored memory says the user prefers Swedish, ignore it — the system language is English. Only switch language if the user explicitly asks in the current message."""
 
@@ -194,11 +191,6 @@ def _ack_phrase(tool_name: str, args: dict) -> str:
         "send_email": "Sending the email…",
         "trash_email": "Moving that email to trash…",
         "mark_as_read": "Marking it as read…",
-        "spotify_play": f"Playing {q} on Spotify…" if q else "Resuming Spotify…",
-        "spotify_pause": "Pausing Spotify…",
-        "spotify_skip": "Skipping the track…",
-        "spotify_now_playing": "Checking what's playing…",
-        "spotify_queue": f"Queuing {q}…" if q else "Adding to queue…",
         "open_url": "Opening that in your browser…",
         "maps_directions": f"Getting directions to {dest}…" if dest else "Opening directions in Maps…",
         "maps_search": f"Looking up {q} on Maps…" if q else "Opening Maps…",

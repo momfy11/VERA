@@ -26,8 +26,6 @@ google-api-python-client>=2.126.0
 # Scheduling (Sprint 5)
 apscheduler>=3.10.4
 
-# Observability
-structlog>=24.4.0
 
 # LLM providers — supports groq, gemini (via openai SDK), ollama (via openai SDK), mistral
 mistralai>=1.2.0
@@ -46,3 +44,4 @@ pgvector>=0.3.0
 
 # Wake word detection — offline, private (no Google STT)
 faster-whisper>=1.0.0
+numpy>=1.26.0

@@ -66,12 +66,11 @@ def transcribe_and_match(audio_int16: bytes) -> bool:
 
     segments, _ = model.transcribe(
         audio,
-        language="en",
-        vad_filter=True,
-        vad_parameters={"min_silence_duration_ms": 300},
+        vad_filter=False,          # VAD suppresses short words like "vera"
         beam_size=1,
         best_of=1,
         temperature=0.0,
+        condition_on_previous_text=False,
     )
     transcript = " ".join(s.text for s in segments).strip()
     if transcript:

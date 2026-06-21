@@ -49,11 +49,6 @@ class Settings(BaseSettings):
     # OpenAI key (only used when embedding_provider=openai)
     openai_api_key: str = ""
 
-    # Spotify (set via SPOTIFY_* env vars)
-    spotify_client_id: str = ""
-    spotify_client_secret: str = ""
-    spotify_redirect_uri: str = "http://127.0.0.1:8888/callback"
-
     # NewsAPI key (newsapi.org free tier: 100 req/day)
     news_api_key: str = ""
 

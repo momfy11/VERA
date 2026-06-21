@@ -7,9 +7,6 @@ Tool categories:
   System   — send_notification, get_clipboard, set_clipboard
   Calendar — get_agenda, find_event, create_event, delete_event
   Email    — list_emails, read_email, send_email, trash_email, mark_as_read
-  Music    — spotify_play, spotify_pause, spotify_skip, spotify_now_playing, spotify_queue
-
-
 Each tool is an async function with a JSON-schema descriptor.  The orchestrator
 passes descriptors to the LLM and dispatches execution when the model requests it.
 
@@ -775,59 +772,6 @@ TOOL_DEFINITIONS: list[dict] = [
             },
         },
     },
-    # ── Spotify ───────────────────────────────────────────────────────────
-    {
-        "type": "function",
-        "function": {
-            "name": "spotify_play",
-            "description": "Play music on Spotify — either resume current playback (no args) or search and play a track/album.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Optional search term, e.g. 'hotel california'. Empty = resume."},
-                },
-                "required": [],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "spotify_pause",
-            "description": "Pause Spotify playback.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "spotify_skip",
-            "description": "Skip to the next Spotify track.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "spotify_now_playing",
-            "description": "Get the currently playing Spotify track (or 'nothing playing').",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "spotify_queue",
-            "description": "Search for a track and add it to the Spotify playback queue.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Track to queue, e.g. 'bohemian rhapsody'."},
-                },
-                "required": ["query"],
-            },
-        },
-    },
     # ── Maps ──────────────────────────────────────────────────────────────
     {
         "type": "function",
@@ -1005,9 +949,6 @@ from backend.app.services.maps_tools import (  # noqa: E402
     get_route, maps_directions, maps_search, nearby_places, open_url,
 )
 from backend.app.services.news_tools import get_news  # noqa: E402
-from backend.app.services.spotify_tools import (  # noqa: E402
-    spotify_now_playing, spotify_pause, spotify_play, spotify_queue, spotify_skip,
-)
 from backend.app.services.utility_tools import convert_currency  # noqa: E402
 
 
@@ -1039,12 +980,6 @@ TOOL_REGISTRY: dict[str, object] = {
     "send_email": send_email,
     "trash_email": trash_email,
     "mark_as_read": mark_as_read,
-    # Spotify
-    "spotify_play": spotify_play,
-    "spotify_pause": spotify_pause,
-    "spotify_skip": spotify_skip,
-    "spotify_now_playing": spotify_now_playing,
-    "spotify_queue": spotify_queue,
     # Maps
     "open_url": open_url,
     "maps_directions": maps_directions,
