@@ -36,7 +36,10 @@
       "Bash(grep -v \"^$\")",
       "Bash(git rm *)",
       "Bash(grep -E \"kt$|java\")",
-      "Bash(git check-ignore *)"
+      "Bash(git check-ignore *)",
+      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 root@46.62.225.46 'docker exec vera-backend-1 grep -r \"onnx\" /usr/local/lib/python3.11/site-packages/openwakeword/ 2>/dev/null | grep -i \"download_url\\\\|http\" | head -10')",
+      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 root@46.62.225.46 'docker exec vera-backend-1 python3 -c \"import openwakeword.utils as u; import inspect; print\\(inspect.getsource\\(u.download_models\\)\\)\" 2>&1 | head -40')",
+      "Bash(bash deploy_now.sh)"
     ]
   }
 }

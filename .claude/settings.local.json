@@ -98,7 +98,13 @@
       "Bash(powershell.exe -File scripts/deploy.ps1)",
       "Bash(bash scripts/deploy.sh)",
       "Bash(bash deploy_now.sh --logs-only)",
-      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 root@46.62.225.46 \"cd /root/vera && docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=50 backend 2>&1\")"
+      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 root@46.62.225.46 \"cd /root/vera && docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=50 backend 2>&1\")",
+      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 root@46.62.225.46 \"cd /root/vera && docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=80 backend 2>&1 | grep -E 'openwakeword|onnx|wake|WARN|ERROR|503|enroll' -i\")",
+      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 root@46.62.225.46 \"find /root -name 'docker-compose.yml' 2>/dev/null | head -3\")",
+      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 root@46.62.225.46 \"ls / && docker ps\")",
+      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 root@46.62.225.46 \"docker logs vera-backend-1 2>&1 | grep -iE 'openwakeword|onnx|wake|enroll|503|error|warn' | tail -30\")",
+      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 root@46.62.225.46 'docker exec vera-backend-1 python3 -c \" *)",
+      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 root@46.62.225.46 \"docker exec vera-backend-1 bash -c \\\\\"find /usr/local/lib -name '*.onnx' 2>/dev/null; echo '---'; ls /usr/local/lib/python3.11/site-packages/openwakeword/\\\\\" 2>&1\")"
     ]
   }
 }
