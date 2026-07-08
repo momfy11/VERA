@@ -53,7 +53,18 @@ class MainActivity : ComponentActivity() {
                 Manifest.permission.POST_NOTIFICATIONS,
             ))
         }
-        val prefs = SecurePrefs(this)
+        val prefs = try {
+            SecurePrefs(this)
+        } catch (_: Exception) {
+            // Keystore corrupted (common after Android update / fingerprint change).
+            // Delete master key + clear encrypted file, then recreate.
+            runCatching {
+                val ks = java.security.KeyStore.getInstance("AndroidKeyStore").also { it.load(null) }
+                ks.deleteEntry(androidx.security.crypto.MasterKey.DEFAULT_MASTER_KEY_ALIAS)
+            }
+            getSharedPreferences("vera_secure_prefs", MODE_PRIVATE).edit().clear().apply()
+            SecurePrefs(this)
+        }
 
         setContent {
             MaterialTheme(colorScheme = VeraDarkColors) {

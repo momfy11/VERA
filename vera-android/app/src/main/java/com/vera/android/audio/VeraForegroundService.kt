@@ -5,15 +5,19 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import com.vera.android.R
 import com.vera.android.data.buildHttpClient
 import com.vera.android.data.prefs.SecurePrefs
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -26,11 +30,13 @@ import okio.ByteString
 class VeraForegroundService : Service() {
 
     companion object {
-        const val ACTION_WAKE_DETECTED = "com.vera.android.WAKE_DETECTED"
         private const val CHANNEL_ID = "vera_foreground"
         private const val NOTIF_ID = 1001
         private const val WS_WAKE_URL = "wss://vera-app.hopto.org/ws/wake"
         private const val SAMPLE_RATE = 16000
+
+        private val _wakeEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+        val wakeEvents = _wakeEvents.asSharedFlow()
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -41,7 +47,14 @@ class VeraForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        startForeground(NOTIF_ID, buildNotification())
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIF_ID, buildNotification(),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION,
+            )
+        } else {
+            startForeground(NOTIF_ID, buildNotification())
+        }
         startWakeWordStream()
     }
 
@@ -134,9 +147,7 @@ class VeraForegroundService : Service() {
         audioRecord?.stop()
         wakeWs?.close(1000, "wake detected")
 
-        // Broadcast to MainActivity → MainViewModel starts VoiceSession
-        LocalBroadcastManager.getInstance(this)
-            .sendBroadcast(Intent(ACTION_WAKE_DETECTED))
+        _wakeEvents.tryEmit(Unit)
 
         // Resume wake word stream after 8s (enough time for command + response)
         scope.launch {
@@ -164,7 +175,7 @@ class VeraForegroundService : Service() {
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("VERA")
             .setContentText("Listening for wake word…")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setOngoing(true)
             .build()
 }

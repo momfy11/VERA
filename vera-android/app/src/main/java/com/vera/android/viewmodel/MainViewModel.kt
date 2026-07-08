@@ -1,13 +1,8 @@
 package com.vera.android.viewmodel
 
 import android.app.Application
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.vera.android.audio.TtsManager
 import com.vera.android.audio.VoiceSession
 import com.vera.android.audio.VoiceState
@@ -72,17 +67,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         onVadEnd = { ws.sendVadEnd() },
     )
 
-    private val wakeReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            if (intent.action == VeraForegroundService.ACTION_WAKE_DETECTED) {
-                // Wake word detected — start listening for user command
-                if (voiceSession.state.value == VoiceState.IDLE) {
-                    voiceSession.startListening()
-                }
-            }
-        }
-    }
-
     init {
         tts.init {}
         tts.onDone = {}
@@ -92,8 +76,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             connectWs(token)
             startForegroundService(app)
         }
-        LocalBroadcastManager.getInstance(app)
-            .registerReceiver(wakeReceiver, IntentFilter(VeraForegroundService.ACTION_WAKE_DETECTED))
+        viewModelScope.launch {
+            VeraForegroundService.wakeEvents.collect {
+                if (voiceSession.state.value == VoiceState.IDLE) {
+                    voiceSession.startListening()
+                }
+            }
+        }
     }
 
     fun connectWs(token: String) = ws.connect(token)
@@ -193,7 +182,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         super.onCleared()
-        LocalBroadcastManager.getInstance(getApplication()).unregisterReceiver(wakeReceiver)
         voiceSession.stopListening()
         tts.destroy()
         ws.disconnect()

@@ -32,9 +32,10 @@
 | Sign in with Google (Web OAuth redirect, PKCE) | ✅ |
 | Hetzner VPS deploy — Caddy HTTPS + WSS auto TLS | ✅ |
 | Bulk email delete (one confirmation, then execute all) | ✅ |
-| Vision / image upload | ❌ |
+| Vision / image upload (gallery, camera, clipboard) | ✅ |
+| Custom wake word voice training (on-device recording → server embedding) | ✅ |
+| Native Android app (Kotlin/Compose, wake word service, TTS, STT) | ✅ |
 | RAG knowledge base | ❌ |
-| Native mobile wrapper | ❌ |
 
 ---
 
@@ -354,7 +355,7 @@ Each of these would be a curated knowledge base loaded into RAG:
 | 24 | **Hetzner VPS deploy** — Caddy HTTPS, Docker Compose prod overlay | ✅ Done |
 | 25 | **Wake word offline** — faster-whisper tiny, /ws/wake WebSocket | ✅ Done |
 | 26 | RAG knowledge base | ⏳ next |
-| 27 | Vision / image upload | ⏳ next |
+| 27 | Vision / image upload | ✅ Done |
 | 28 | Server-side STT (Whisper) — fallback when Web Speech API unavailable | ⏳ next |
 | 29 | Terminal / code execution | ⏳ post-POC |
 | 30 | Native mobile wrapper | ⏳ post-POC |
