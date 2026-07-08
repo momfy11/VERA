@@ -12,6 +12,9 @@ WORKDIR /app
 COPY backend/requirements.txt /app/backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 
+# Download openwakeword ONNX base models at build time (pip package v0.6+ doesn't bundle them)
+RUN python -c "import openwakeword.utils; openwakeword.utils.download_models()"
+
 # Copy backend code (skip credentials/, logs/, .env — mount via volume or env)
 COPY backend/app /app/backend/app
 COPY backend/init_db.py /app/backend/init_db.py

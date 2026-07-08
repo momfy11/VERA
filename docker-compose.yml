@@ -33,6 +33,7 @@ services:
       - ./logs:/app/logs
       - vera_fastembed_cache:/app/.fastembed_cache
       - vera_whisper_cache:/app/.whisper_cache
+      - vera_wake_models:/app/wake_models
     ports:
       - "8000:8000"
     depends_on:
@@ -58,3 +59,4 @@ volumes:
   vera_pgdata:
   vera_fastembed_cache:
   vera_whisper_cache:
+  vera_wake_models:
