@@ -13,7 +13,7 @@ import com.vera.android.data.prefs.SecurePrefs
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(onBack: () -> Unit, onLogout: () -> Unit) {
+fun SettingsScreen(onBack: () -> Unit, onLogout: () -> Unit, onTrainWakeWord: () -> Unit = {}) {
     val context = LocalContext.current
     val prefs = remember { SecurePrefs(context) }
     var ttsEnabled by remember { mutableStateOf(prefs.ttsEnabled) }
@@ -45,6 +45,15 @@ fun SettingsScreen(onBack: () -> Unit, onLogout: () -> Unit) {
                 valueRange = 0.5f..2.0f,
                 steps = 14,
             )
+
+            Spacer(Modifier.height(24.dp))
+
+            OutlinedButton(
+                onClick = onTrainWakeWord,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Train Wake Word")
+            }
 
             Spacer(Modifier.weight(1f))
 

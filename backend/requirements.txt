@@ -45,3 +45,4 @@ pgvector>=0.3.0
 # Wake word detection — offline, private (no Google STT)
 faster-whisper>=1.0.0
 numpy>=1.26.0
+openwakeword>=0.6.0

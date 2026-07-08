@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -92,4 +93,46 @@ class VeraApi(private val http: OkHttpClient = com.vera.android.data.buildHttpCl
             .build()
         runCatching { http.newCall(req).execute().close() }
     }
+
+    suspend fun uploadWakeSample(token: String, pcm16: ByteArray): Boolean = withContext(Dispatchers.IO) {
+        val body = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart(
+                "file", "sample.pcm",
+                pcm16.toRequestBody("application/octet-stream".toMediaType())
+            )
+            .build()
+        val req = Request.Builder()
+            .url("$BASE_URL/api/wake-word/enroll")
+            .post(body)
+            .header("X-Session-Token", token)
+            .build()
+        runCatching { http.newCall(req).execute().use { it.isSuccessful } }.getOrDefault(false)
+    }
+
+    suspend fun getWakeTemplateCount(token: String): Int = withContext(Dispatchers.IO) {
+        val req = Request.Builder()
+            .url("$BASE_URL/api/wake-word/enroll")
+            .header("X-Session-Token", token)
+            .build()
+        runCatching {
+            http.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@runCatching 0
+                val body = resp.body?.string() ?: return@runCatching 0
+                Json { ignoreUnknownKeys = true }
+                    .decodeFromString<WakeStatus>(body).template_count
+            }
+        }.getOrDefault(0)
+    }
+
+    suspend fun clearWakeEnrollment(token: String) = withContext(Dispatchers.IO) {
+        val req = Request.Builder()
+            .url("$BASE_URL/api/wake-word/enroll")
+            .delete()
+            .header("X-Session-Token", token)
+            .build()
+        runCatching { http.newCall(req).execute().close() }
+    }
 }
+
+@Serializable private data class WakeStatus(val template_count: Int)

@@ -79,6 +79,9 @@ logs
 *.ckpt
 *.safetensors
 
+# Java heap dumps (can be hundreds of MB)
+*.hprof
+
 # Docker
 .dockerignore
 

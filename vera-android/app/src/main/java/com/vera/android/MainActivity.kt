@@ -22,6 +22,7 @@ import com.vera.android.ui.main.MainScreen
 import com.vera.android.ui.main.OnboardingScreen
 import com.vera.android.ui.memories.MemoriesScreen
 import com.vera.android.ui.settings.SettingsScreen
+import com.vera.android.ui.settings.WakeWordTrainingScreen
 import com.vera.android.ui.suggestions.SuggestionsScreen
 import com.vera.android.viewmodel.MainViewModel
 
@@ -91,8 +92,12 @@ class MainActivity : ComponentActivity() {
                             onLogout = {
                                 prefs.clear()
                                 navController.navigate("login") { popUpTo(0) { inclusive = true } }
-                            }
+                            },
+                            onTrainWakeWord = { navController.navigate("wakeword_training") },
                         )
+                    }
+                    composable("wakeword_training") {
+                        WakeWordTrainingScreen(onBack = { navController.popBackStack() })
                     }
                     composable("memories") {
                         MemoriesScreen(onBack = { navController.popBackStack() })
