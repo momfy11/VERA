@@ -96,7 +96,9 @@
       "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 -o StrictHostKeyChecking=no root@46.62.225.46 \"cd /opt/VERA && docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=200 backend 2>&1 | head -80\")",
       "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 -o StrictHostKeyChecking=no root@46.62.225.46 \"cd /opt/VERA && docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=50 frontend 2>&1\")",
       "Bash(powershell.exe -File scripts/deploy.ps1)",
-      "Bash(bash scripts/deploy.sh)"
+      "Bash(bash scripts/deploy.sh)",
+      "Bash(bash deploy_now.sh --logs-only)",
+      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 root@46.62.225.46 \"cd /root/vera && docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=50 backend 2>&1\")"
     ]
   }
 }
