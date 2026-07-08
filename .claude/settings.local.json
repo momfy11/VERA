@@ -86,7 +86,12 @@
       "Bash(ls /mnt/c/Users/momfy/repos/VERA --ignore=vera --ignore=client --ignore=vera-android)",
       "Read(//mnt/c/Users/momfy/repos/**)",
       "Bash(dir c:\\\\Users\\\\momfy\\\\repos\\\\VERA /B /A:D)",
-      "PowerShell(Get-ChildItem \"c:\\\\Users\\\\momfy\\\\repos\\\\VERA\" -Directory | Where-Object { $_.Name -notin @\\('vera','client','vera-android','.git'\\) } | Select-Object Name)"
+      "PowerShell(Get-ChildItem \"c:\\\\Users\\\\momfy\\\\repos\\\\VERA\" -Directory | Where-Object { $_.Name -notin @\\('vera','client','vera-android','.git'\\) } | Select-Object Name)",
+      "Bash(git filter-branch *)",
+      "Bash(git stash *)",
+      "Bash(FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch --force --index-filter \"git rm --cached --ignore-unmatch vera-android/java_pid31732.hprof vera-android/java_pid40360.hprof\" --prune-empty origin/main..HEAD)",
+      "Bash(git push *)",
+      "Bash(bash deploy_now.sh)"
     ]
   }
 }

@@ -22,7 +22,7 @@ import com.vera.android.system.VeraMediaController
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
-data class ChatMessage(val id: Long, val role: String, val text: String)
+data class ChatMessage(val id: Long, val role: String, val text: String, val imageBase64: String? = null)
 
 data class ActionRequest(
     val actionId: String,
@@ -98,11 +98,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun connectWs(token: String) = ws.connect(token)
 
-    fun sendMessage(text: String) {
-        if (text.isBlank()) return
-        addMessage("user", text)
+    fun sendMessage(text: String, imageBase64: String? = null, imageMime: String? = null) {
+        if (text.isBlank() && imageBase64 == null) return
+        addMessage("user", text, imageBase64)
         _ui.update { it.copy(isTyping = true, error = null) }
-        ws.sendMessage(text)
+        ws.sendMessage(text, imageBase64, imageMime)
         // Auto-clear typing after 45s if no response
         typingTimeoutJob?.cancel()
         typingTimeoutJob = viewModelScope.launch {
@@ -187,8 +187,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun addMessage(role: String, text: String) {
-        _ui.update { state -> state.copy(messages = state.messages + ChatMessage(nextId++, role, text)) }
+    private fun addMessage(role: String, text: String, imageBase64: String? = null) {
+        _ui.update { state -> state.copy(messages = state.messages + ChatMessage(nextId++, role, text, imageBase64)) }
     }
 
     override fun onCleared() {
