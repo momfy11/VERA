@@ -91,7 +91,12 @@
       "Bash(git stash *)",
       "Bash(FILTER_BRANCH_SQUELCH_WARNING=1 git filter-branch --force --index-filter \"git rm --cached --ignore-unmatch vera-android/java_pid31732.hprof vera-android/java_pid40360.hprof\" --prune-empty origin/main..HEAD)",
       "Bash(git push *)",
-      "Bash(bash deploy_now.sh)"
+      "Bash(bash deploy_now.sh)",
+      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 -o StrictHostKeyChecking=no root@46.62.225.46 \"cd /opt/VERA && docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=60 backend 2>&1\")",
+      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 -o StrictHostKeyChecking=no root@46.62.225.46 \"cd /opt/VERA && docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=200 backend 2>&1 | head -80\")",
+      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 -o StrictHostKeyChecking=no root@46.62.225.46 \"cd /opt/VERA && docker compose -f docker-compose.yml -f docker-compose.prod.yml logs --tail=50 frontend 2>&1\")",
+      "Bash(powershell.exe -File scripts/deploy.ps1)",
+      "Bash(bash scripts/deploy.sh)"
     ]
   }
 }
