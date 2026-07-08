@@ -100,12 +100,10 @@ export default function App() {
   const [pendingAction, setPendingAction] = useState<import("./components/ApprovalModal").PendingAction | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>(loadMessages);
 
-  // Persist messages so chat history survives page reloads / app restarts.
+  // Persist messages (strip imageData — too large for localStorage).
   useEffect(() => {
-    window.localStorage.setItem(
-      MESSAGES_STORAGE_KEY,
-      JSON.stringify(messages.slice(-MAX_STORED_MESSAGES)),
-    );
+    const toStore = messages.slice(-MAX_STORED_MESSAGES).map(({ imageData: _, imageMime: __, ...rest }) => rest);
+    window.localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(toStore));
   }, [messages]);
 
   // Increment to force the socket useEffect to re-run (auto-reconnect).
@@ -265,8 +263,13 @@ export default function App() {
     const trimmed = text.trim().slice(0, MAX_MESSAGE_LENGTH);
     if (!trimmed && !imageData) return;
 
-    const displayText = trimmed || (imageData ? "📷 Image" : "");
-    setMessages((prev) => [...prev, { id: crypto.randomUUID(), role: "user", text: displayText }]);
+    setMessages((prev) => [...prev, {
+      id: crypto.randomUUID(),
+      role: "user" as const,
+      text: trimmed,
+      imageData,
+      imageMime,
+    }]);
 
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       setSessionError("Not connected — please start a new session.");

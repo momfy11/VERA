@@ -7,6 +7,7 @@ import { MemoriesPanel } from "./MemoriesPanel";
 import { SettingsPanel } from "./SettingsPanel";
 import { StatusPill } from "./StatusPill";
 import { SuggestionsPanel } from "./SuggestionsPanel";
+import { WakeWordPanel } from "./WakeWordPanel";
 import type { ChatMessage } from "../lib/types";
 import { useInstallPrompt } from "../lib/useInstallPrompt";
 import { useTTS } from "../lib/useTTS";
@@ -255,7 +256,16 @@ export function MainPage({
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.text}</ReactMarkdown>
               </div>
             ) : (
-              <p>{msg.text}</p>
+              <>
+                {msg.imageData && (
+                  <img
+                    src={`data:${msg.imageMime ?? "image/jpeg"};base64,${msg.imageData}`}
+                    alt="Attached"
+                    className="chat-bubble-image"
+                  />
+                )}
+                {msg.text && <p>{msg.text}</p>}
+              </>
             )}
           </div>
         ))}
@@ -394,6 +404,7 @@ export function MainPage({
               <IntegrationsPanel sessionToken={sessionToken} />
               <MemoriesPanel sessionToken={sessionToken} />
               <SuggestionsPanel sessionToken={sessionToken} ws={ws} />
+              <WakeWordPanel sessionToken={sessionToken} />
               <SettingsPanel
                 ttsEnabled={ttsEnabled}
                 onTtsEnabledChange={handleTtsEnabled}

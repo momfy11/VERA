@@ -118,6 +118,34 @@ export async function logout(sessionToken: string): Promise<void> {
   }).catch(() => {/* best-effort — token removed from client regardless */});
 }
 
+export async function getWakeStatus(sessionToken: string): Promise<{ template_count: number }> {
+  const response = await fetch(`${API_BASE}/wake-word/enroll`, {
+    headers: { "X-Session-Token": sessionToken },
+  });
+  if (!response.ok) throw new Error("Failed to get wake word status");
+  return response.json();
+}
+
+export async function uploadWakeSample(sessionToken: string, pcm16: ArrayBuffer): Promise<{ template_count: number }> {
+  const blob = new Blob([pcm16], { type: "application/octet-stream" });
+  const form = new FormData();
+  form.append("file", blob, "sample.pcm");
+  const response = await fetch(`${API_BASE}/wake-word/enroll`, {
+    method: "POST",
+    headers: { "X-Session-Token": sessionToken },
+    body: form,
+  });
+  if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
+  return response.json();
+}
+
+export async function clearWakeEnrollment(sessionToken: string): Promise<void> {
+  await fetch(`${API_BASE}/wake-word/enroll`, {
+    method: "DELETE",
+    headers: { "X-Session-Token": sessionToken },
+  });
+}
+
 export async function googleDisconnect(sessionToken: string): Promise<void> {
   const response = await fetch(`${API_BASE}/google/disconnect`, {
     method: "POST",
