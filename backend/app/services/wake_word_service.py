@@ -41,13 +41,23 @@ def _get_onnx_sessions():
     try:
         import onnxruntime as ort
         import openwakeword
+        import openwakeword.utils as _oww_utils
+
         pkg = Path(openwakeword.__file__).parent / "resources" / "models"
+        mel_path = pkg / "melspectrogram.onnx"
+        emb_path = pkg / "embedding_model.onnx"
+
+        if not mel_path.exists() or not emb_path.exists():
+            logger.info("openwakeword ONNX models not found — downloading...")
+            _oww_utils.download_models()
+            logger.info("openwakeword models downloaded")
+
         _melspec_session = ort.InferenceSession(
-            str(pkg / "melspectrogram.onnx"),
+            str(mel_path),
             providers=["CPUExecutionProvider"],
         )
         _embedding_session = ort.InferenceSession(
-            str(pkg / "embedding_model.onnx"),
+            str(emb_path),
             providers=["CPUExecutionProvider"],
         )
         logger.info("openwakeword ONNX sessions loaded")
