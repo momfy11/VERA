@@ -1,6 +1,7 @@
 package com.vera.android.viewmodel
 
 import android.app.Application
+import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vera.android.audio.TtsManager
@@ -43,7 +44,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = SecurePrefs(app)
     private val http = buildHttpClient()
     private val api = VeraApi(http)
-    val ws = VeraWebSocket(http)
+    private val ws = VeraWebSocket(http)
     private val tts = TtsManager(app)
     private val appLauncher = AppLauncher(app)
     private val mediaController = VeraMediaController(app)
@@ -56,7 +57,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private var ttsRate = prefs.ttsRate
     private var typingTimeoutJob: Job? = null
 
-    val voiceSession = VoiceSession(
+    private val voiceSession = VoiceSession(
         context = app,
         onInterim = { text -> _ui.update { it.copy(interimText = text) } },
         onFinal = { text ->
@@ -85,7 +86,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun connectWs(token: String) = ws.connect(token)
+    private fun connectWs(token: String) = ws.connect(token)
 
     fun sendMessage(text: String, imageBase64: String? = null, imageMime: String? = null) {
         if (text.isBlank() && imageBase64 == null) return
@@ -118,14 +119,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             prefs.sessionToken?.let { api.rejectAction(it, actionId) }
             _ui.update { it.copy(pendingAction = null) }
-        }
-    }
-
-    fun logout() {
-        viewModelScope.launch {
-            prefs.sessionToken?.let { api.logout(it) }
-            ws.disconnect()
-            prefs.clear()
         }
     }
 

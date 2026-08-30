@@ -39,7 +39,9 @@
       "Bash(git check-ignore *)",
       "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 root@46.62.225.46 'docker exec vera-backend-1 grep -r \"onnx\" /usr/local/lib/python3.11/site-packages/openwakeword/ 2>/dev/null | grep -i \"download_url\\\\|http\" | head -10')",
       "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 root@46.62.225.46 'docker exec vera-backend-1 python3 -c \"import openwakeword.utils as u; import inspect; print\\(inspect.getsource\\(u.download_models\\)\\)\" 2>&1 | head -40')",
-      "Bash(bash deploy_now.sh)"
+      "Bash(bash deploy_now.sh)",
+      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 -o StrictHostKeyChecking=no root@46.62.225.46 \"docker logs vera-backend-1 2>&1 | grep -iE 'openwakeword|onnx|model|embed|wake|warn|error' | tail -40\")",
+      "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 -o StrictHostKeyChecking=no root@46.62.225.46 \"docker logs vera-backend-1 2>&1 | grep -E 'Embedding error|enroll|503|openwakeword|ONNX' | tail -20\")"
     ]
   }
 }

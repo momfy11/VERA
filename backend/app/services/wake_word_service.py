@@ -85,8 +85,20 @@ def _compute_embedding(audio_float32: np.ndarray) -> np.ndarray | None:
         mel_name = mel_sess.get_inputs()[0].name
         mel_out = mel_sess.run(None, {mel_name: inp})[0]
 
+        # mel_out shape: (1, 1, N_frames, mel_bins) — flatten to (N_frames, mel_bins)
+        # Embedding model expects (1, 76, 32, 1)
+        mel_frames = mel_out.reshape(-1, mel_out.shape[-1])  # → (N_frames, 32)
+        n_frames = mel_frames.shape[0]
+        target = 76
+        if n_frames >= target:
+            start = (n_frames - target) // 2
+            mel_frames = mel_frames[start:start + target]
+        else:
+            mel_frames = np.pad(mel_frames, ((0, target - n_frames), (0, 0)))
+        emb_input = mel_frames[np.newaxis, :, :, np.newaxis].astype(np.float32)  # (1,76,32,1)
+
         emb_name = emb_sess.get_inputs()[0].name
-        emb_out = emb_sess.run(None, {emb_name: mel_out})[0]
+        emb_out = emb_sess.run(None, {emb_name: emb_input})[0]
         return emb_out.flatten()
     except Exception as exc:
         logger.warning("Embedding error: %r", exc)
