@@ -34,6 +34,8 @@ class VeraForegroundService : Service() {
         private const val NOTIF_ID = 1001
         private const val WS_WAKE_URL = "wss://vera-app.hopto.org/ws/wake"
         private const val SAMPLE_RATE = 16000
+        const val ACTION_PAUSE_WAKE = "pause_wake"
+        const val ACTION_RESUME_WAKE = "resume_wake"
 
         private val _wakeEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
         val wakeEvents = _wakeEvents.asSharedFlow()
@@ -59,9 +61,13 @@ class VeraForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Resume streaming after being interrupted by VoiceSession
-        if (intent?.action == "resume_wake") {
-            startWakeWordStream()
+        when (intent?.action) {
+            ACTION_PAUSE_WAKE -> {
+                streaming = false
+                audioRecord?.stop()
+                wakeWs?.close(1000, "paused for training")
+            }
+            ACTION_RESUME_WAKE -> startWakeWordStream()
         }
         return START_STICKY
     }

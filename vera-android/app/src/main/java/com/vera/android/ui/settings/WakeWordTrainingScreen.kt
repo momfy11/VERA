@@ -20,6 +20,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Intent
+import com.vera.android.audio.VeraForegroundService
 import com.vera.android.data.api.VeraApi
 import com.vera.android.data.buildHttpClient
 import com.vera.android.data.prefs.SecurePrefs
@@ -68,6 +70,11 @@ fun WakeWordTrainingScreen(onBack: () -> Unit) {
             }
             countdown = 0
 
+            // Pause wake word service so it releases the mic
+            context.startService(
+                Intent(context, VeraForegroundService::class.java).setAction(VeraForegroundService.ACTION_PAUSE_WAKE)
+            )
+
             isRecording = true
             statusText = "Recording... say \"Hey VERA\""
 
@@ -99,6 +106,12 @@ fun WakeWordTrainingScreen(onBack: () -> Unit) {
             statusText = "Uploading sample..."
 
             val ok = withContext(Dispatchers.IO) { api.uploadWakeSample(token, pcm) }
+
+            // Resume wake word service
+            context.startService(
+                Intent(context, VeraForegroundService::class.java).setAction(VeraForegroundService.ACTION_RESUME_WAKE)
+            )
+
             if (ok) {
                 templateCount = api.getWakeTemplateCount(token)
                 statusText = when {

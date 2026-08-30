@@ -45,6 +45,11 @@
         <package android:name="com.snapchat.android" />
         <package android:name="com.netflix.mediaclient" />
         <!-- Generic intent so arbitrary deep links (spotify://, geo:, tel:) resolve -->
+        <!-- Lets getLaunchIntentForPackage() work for ANY installed app (Android 11+) -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" />
