@@ -15,6 +15,7 @@ Rule taxonomy (Sprint 5 — no external integrations yet):
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -26,6 +27,68 @@ from backend.app.db.session import SessionLocal
 from backend.app.services.memory import MemoryService
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Analytics system prompt (spontaneous learning engine)
+# ---------------------------------------------------------------------------
+
+_ANALYTICS_SYSTEM = """\
+<system_instructions>
+You are the background intelligence and learning engine for a proactive AI assistant (JARVIS-style).
+Your task is to analyze patterns in the user's long-term memory and determine whether the assistant
+should ask a clarifying question via a mobile notification to expand its preference database.
+
+<question_categories>
+Categorize every identified pattern into one of these three categories:
+
+1. PREFERENCE (e.g., food habits, travel preferences, preferred brands, response formatting)
+   - Goal: Learn what the user likes or dislikes in daily life.
+   - Threshold: Triggers after a pattern repeats 2-3 times.
+
+2. ROUTINE_AND_CONTEXT (e.g., workout times, commute habits, meeting prep timing)
+   - Goal: Anticipate what the user needs at specific times.
+   - Threshold: Requires clear time-based patterns (same time/day of week).
+
+3. PROACTIVE_PERMISSION (e.g., "Would you like me to automatically check tickets/weather?")
+   - Goal: Gain approval to act autonomously in the background going forward.
+   - Threshold: Only when the user shows clear intent for a recurring task.
+</question_categories>
+
+<decision_rules>
+For every pattern candidate evaluated, apply these strict rules:
+
+1. Confidence Score Threshold:
+   - Must be strictly between 0.50 and 0.75 to trigger a notification.
+   - Score < 0.50: Too uncertain. Save to memory, DO NOT notify.
+   - Score > 0.75: Confirmed enough. Assume true, DO NOT notify (act on it silently).
+
+2. Daily Budget:
+   - Maximum of 1 proactive notification allowed per 24-hour period.
+
+3. Notification Constraints:
+   - Body text: MAXIMUM 12 words.
+   - Title text: MAXIMUM 4 words.
+   - Action Buttons: Always provide exactly 2 quick-action choices.
+</decision_rules>
+
+<output_format>
+Return ONLY a valid JSON object. No markdown, no filler text.
+
+{
+  "should_notify": boolean,
+  "pattern_id": "string",
+  "category": "PREFERENCE" | "ROUTINE_AND_CONTEXT" | "PROACTIVE_PERMISSION",
+  "confidence_score": number,
+  "reasoning": "Short explanation",
+  "notification": {
+    "title": "Max 4 words",
+    "body": "Question under 12 words?",
+    "action_yes": {"label": "Yes label", "target_confidence": 1.0},
+    "action_no": {"label": "No label", "target_confidence": 0.1}
+  }
+}
+</output_format>
+</system_instructions>"""
 
 
 # ---------------------------------------------------------------------------
@@ -326,6 +389,140 @@ async def _evaluate_for_user(
 
 
 # ---------------------------------------------------------------------------
+# Proactive learning analytics (runs every 4 hours)
+# ---------------------------------------------------------------------------
+
+
+async def _run_learning_analytics(connection_manager_ref) -> None:  # type: ignore[type-arg]
+    """For each connected user with enough memories, call Claude to detect
+    patterns and optionally push a proactive question notification.
+
+    Budget: max 1 proactive_question per user per 24h.
+    Fires only for users with >= 3 memory items (not enough signal otherwise).
+    """
+    now = datetime.now(timezone.utc)
+    active_user_ids = connection_manager_ref.active_user_ids()
+    if not active_user_ids:
+        return
+
+    try:
+        from backend.app.services.llm import build_llm_client  # noqa: PLC0415
+        llm = build_llm_client()
+    except Exception as exc:
+        logger.warning("Learning analytics: LLM unavailable — %r", exc)
+        return
+
+    db = SessionLocal()
+    try:
+        for user_id in active_user_ids:
+            try:
+                await _learning_for_user(db, connection_manager_ref, llm, user_id, now)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Learning analytics error for user %s: %r", user_id, exc)
+    finally:
+        db.close()
+
+
+async def _learning_for_user(db, connection_manager_ref, llm, user_id: str, now: datetime) -> None:  # type: ignore[type-arg]
+    # Check daily budget — only 1 proactive question per 24h
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    already_asked = (
+        db.query(models.AgentSuggestion)
+        .filter(
+            models.AgentSuggestion.user_id == user_id,
+            models.AgentSuggestion.type == "proactive_question",
+            models.AgentSuggestion.ts >= today_start,
+        )
+        .first()
+    )
+    if already_asked:
+        return
+
+    # Load memories — need >= 3 to have meaningful patterns
+    memory_svc = MemoryService(user_id=user_id)
+    memories = memory_svc.retrieve(db, limit=30)
+    if len(memories) < 3:
+        return
+
+    # Build memory context for the LLM
+    memory_text = json.dumps(memories, ensure_ascii=False)
+    user_prompt = (
+        f"Here are the user's stored memories (kind + text):\n{memory_text}\n\n"
+        "Analyze these for patterns. Return the JSON decision object."
+    )
+
+    raw = await llm.generate(
+        messages=[{"role": "user", "content": user_prompt}],
+        system=_ANALYTICS_SYSTEM,
+    )
+
+    # Strip markdown fences if present
+    clean = raw.strip()
+    if clean.startswith("```"):
+        clean = clean.split("```")[1]
+        if clean.startswith("json"):
+            clean = clean[4:]
+    clean = clean.strip()
+
+    try:
+        result = json.loads(clean)
+    except Exception as exc:
+        logger.warning("Learning analytics: JSON parse failed for user %s: %r — raw=%r", user_id, exc, raw[:200])
+        return
+
+    if not result.get("should_notify"):
+        logger.debug("Learning analytics: no notification for user %s (score=%.2f)", user_id, result.get("confidence_score", 0))
+        return
+
+    confidence = float(result.get("confidence_score", 0))
+    if not (0.50 < confidence < 0.75):
+        logger.debug("Learning analytics: confidence %.2f out of notify range for user %s", confidence, user_id)
+        return
+
+    notification = result.get("notification", {})
+    if not notification.get("title") or not notification.get("body"):
+        return
+
+    # Persist as AgentSuggestion for tracking and answer lookup
+    suggestion = models.AgentSuggestion(
+        user_id=user_id,
+        type="proactive_question",
+        priority=6,
+        status="new",
+        payload_json={
+            "pattern_id": result.get("pattern_id", ""),
+            "category": result.get("category", "PREFERENCE"),
+            "confidence_score": confidence,
+            "reasoning": result.get("reasoning", ""),
+            "notification": notification,
+            "action_yes": notification.get("action_yes", {"label": "Yes", "target_confidence": 1.0}),
+            "action_no": notification.get("action_no", {"label": "No", "target_confidence": 0.1}),
+        },
+    )
+    db.add(suggestion)
+    db.commit()
+    db.refresh(suggestion)
+
+    logger.info(
+        "Proactive learning question for user %s: %r (score=%.2f)",
+        user_id, notification.get("body"), confidence,
+    )
+
+    # Push to Android app via WebSocket
+    await connection_manager_ref.send(
+        user_id,
+        "agent.proactive_question",
+        {
+            "question_id": suggestion.id,
+            "title": notification["title"],
+            "body": notification["body"],
+            "action_yes_label": notification.get("action_yes", {}).get("label", "Yes"),
+            "action_no_label": notification.get("action_no", {}).get("label", "No"),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Scheduler lifecycle
 # ---------------------------------------------------------------------------
 
@@ -355,8 +552,16 @@ class ProactiveScheduler:
             id="proactive_suggestions",
             replace_existing=True,
         )
+        self._scheduler.add_job(
+            _run_learning_analytics,
+            trigger="interval",
+            hours=4,
+            args=[manager],
+            id="learning_analytics",
+            replace_existing=True,
+        )
         self._scheduler.start()
-        logger.info("ProactiveScheduler started — evaluating rules every 60 s")
+        logger.info("ProactiveScheduler started — evaluating rules every 60 s, learning analytics every 4 h")
 
     def stop(self) -> None:
         """Gracefully shut down the scheduler."""

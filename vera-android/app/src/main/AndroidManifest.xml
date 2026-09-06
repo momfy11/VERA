@@ -89,6 +89,11 @@
             android:name=".system.ReminderReceiver"
             android:exported="false" />
 
+        <!-- Proactive learning Yes/No button receiver -->
+        <receiver
+            android:name=".system.ProactiveQuestionReceiver"
+            android:exported="false" />
+
         <!-- Notification Listener — for media control (Spotify etc.) -->
         <service
             android:name=".system.VeraNotificationListener"

@@ -1,7 +1,11 @@
 package com.vera.android.viewmodel
 
 import android.app.Application
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Intent
+import androidx.core.app.NotificationCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vera.android.audio.TtsManager
@@ -14,6 +18,7 @@ import com.vera.android.data.prefs.SecurePrefs
 import com.vera.android.data.ws.ServerMessage
 import com.vera.android.data.ws.VeraWebSocket
 import com.vera.android.system.AppLauncher
+import com.vera.android.system.ProactiveQuestionReceiver
 import com.vera.android.system.VeraMediaController
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -153,7 +158,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     is ServerMessage.OpenUrl -> appLauncher.openUri(msg.url)
                     is ServerMessage.SetReminder -> appLauncher.scheduleReminder(msg.timeIso, msg.text)
                     is ServerMessage.MediaControl -> mediaController.execute(msg.action)
-                    is ServerMessage.LaunchApp -> appLauncher.openUri(msg.uri)
+                    is ServerMessage.LaunchApp -> appLauncher.launchApp(msg.uri)
+                    is ServerMessage.ProactiveQuestion -> showProactiveNotification(app, msg)
                     is ServerMessage.Error -> {
                         typingTimeoutJob?.cancel()
                         _ui.update { it.copy(error = msg.message, isTyping = false) }
@@ -164,9 +170,52 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             voiceSession.state.collect { vs ->
                 _ui.update { it.copy(voiceState = vs) }
-                if (vs == VoiceState.LISTENING) tts.stop()
+                when (vs) {
+                    VoiceState.LISTENING -> {
+                        tts.stop()
+                        // Free the mic so SpeechRecognizer can take over
+                        app.startService(Intent(app, VeraForegroundService::class.java)
+                            .setAction(VeraForegroundService.ACTION_PAUSE_WAKE))
+                    }
+                    VoiceState.IDLE -> {
+                        // Resume wake word stream after speech session ends
+                        app.startService(Intent(app, VeraForegroundService::class.java)
+                            .setAction(VeraForegroundService.ACTION_RESUME_WAKE))
+                    }
+                    else -> {}
+                }
             }
         }
+    }
+
+    private fun showProactiveNotification(app: Application, msg: ServerMessage.ProactiveQuestion) {
+        val nm = app.getSystemService(NotificationManager::class.java)
+        nm.createNotificationChannel(
+            NotificationChannel(ProactiveQuestionReceiver.CHANNEL_ID, "VERA Learning", NotificationManager.IMPORTANCE_DEFAULT)
+        )
+        val notifId = msg.questionId.hashCode()
+
+        fun actionIntent(answer: String): PendingIntent {
+            val i = Intent(app, ProactiveQuestionReceiver::class.java).apply {
+                putExtra(ProactiveQuestionReceiver.EXTRA_QUESTION_ID, msg.questionId)
+                putExtra(ProactiveQuestionReceiver.EXTRA_ANSWER, answer)
+                putExtra(ProactiveQuestionReceiver.EXTRA_NOTIF_ID, notifId)
+            }
+            return PendingIntent.getBroadcast(
+                app, (msg.questionId + answer).hashCode(), i,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+        }
+
+        val notification = NotificationCompat.Builder(app, ProactiveQuestionReceiver.CHANNEL_ID)
+            .setContentTitle(msg.title)
+            .setContentText(msg.body)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .addAction(0, msg.yesLabel, actionIntent("yes"))
+            .addAction(0, msg.noLabel, actionIntent("no"))
+            .setAutoCancel(true)
+            .build()
+        nm.notify(notifId, notification)
     }
 
     private fun addMessage(role: String, text: String, imageBase64: String? = null) {

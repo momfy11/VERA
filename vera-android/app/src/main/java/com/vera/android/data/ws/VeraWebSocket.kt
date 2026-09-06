@@ -20,6 +20,13 @@ sealed class ServerMessage {
     data class SetReminder(val timeIso: String, val text: String) : ServerMessage()
     data class MediaControl(val action: String) : ServerMessage()
     data class LaunchApp(val uri: String) : ServerMessage()
+    data class ProactiveQuestion(
+        val questionId: String,
+        val title: String,
+        val body: String,
+        val yesLabel: String,
+        val noLabel: String,
+    ) : ServerMessage()
     data class Error(val message: String) : ServerMessage()
 }
 
@@ -70,6 +77,13 @@ class VeraWebSocket(private val http: OkHttpClient) {
                         )
                         "agent.media_control" -> ServerMessage.MediaControl(p["action"]?.jsonPrimitive?.content ?: "")
                         "agent.launch_app" -> ServerMessage.LaunchApp(p["uri"]?.jsonPrimitive?.content ?: "")
+                        "agent.proactive_question" -> ServerMessage.ProactiveQuestion(
+                            questionId = p["question_id"]?.jsonPrimitive?.content ?: "",
+                            title = p["title"]?.jsonPrimitive?.content ?: "VERA",
+                            body = p["body"]?.jsonPrimitive?.content ?: "",
+                            yesLabel = p["action_yes_label"]?.jsonPrimitive?.content ?: "Yes",
+                            noLabel = p["action_no_label"]?.jsonPrimitive?.content ?: "No",
+                        )
                         "server.error", "error" -> ServerMessage.Error(
                             p["message"]?.jsonPrimitive?.content ?: obj["message"]?.jsonPrimitive?.content ?: "error"
                         )

@@ -133,6 +133,17 @@ class VeraApi(private val http: OkHttpClient = com.vera.android.data.buildHttpCl
             .build()
         runCatching { http.newCall(req).execute().close() }
     }
+
+    suspend fun submitLearningAnswer(token: String, questionId: String, answer: String) = withContext(Dispatchers.IO) {
+        val body = json.encodeToString(LearningAnswerRequest(questionId, answer)).toRequestBody(JSON_MEDIA)
+        val req = Request.Builder()
+            .url("$BASE_URL/api/learning/answer")
+            .post(body)
+            .header("X-Session-Token", token)
+            .build()
+        runCatching { http.newCall(req).execute().close() }
+    }
 }
 
 @Serializable private data class WakeStatus(val template_count: Int)
+@Serializable private data class LearningAnswerRequest(val question_id: String, val answer: String)

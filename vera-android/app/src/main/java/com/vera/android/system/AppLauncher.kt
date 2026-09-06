@@ -74,6 +74,16 @@ class AppLauncher(private val context: Context) {
         }
     }
 
+    /** Called for `launch_app` tool — tries native only, never falls back to browser. */
+    fun launchApp(uri: String) {
+        val lowerUri = uri.lowercase()
+        val nativePackage = urlToPackage.entries.firstOrNull { lowerUri.contains(it.key) }?.value
+        val target = nativePackage ?: uri  // use map match or treat uri as package name directly
+        if (!launchPackage(target)) {
+            Toast.makeText(context, "App not installed: $target", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     fun launchPackage(packageName: String): Boolean {
         val launchIntent = runCatching {
             context.packageManager.getLaunchIntentForPackage(packageName)
