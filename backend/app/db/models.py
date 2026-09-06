@@ -142,6 +142,19 @@ class ChatMessage(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class AppCrash(Base):
+    __tablename__ = "app_crashes"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, server_default=text("gen_random_uuid()"))
+    ts: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    app_version: Mapped[str] = mapped_column(String(32), default="")
+    android_version: Mapped[str] = mapped_column(String(32), default="")
+    device_model: Mapped[str] = mapped_column(String(128), default="")
+    stacktrace: Mapped[str] = mapped_column(Text, default="")
+    # Optional — may be absent if crash happened before login
+    user_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False), ForeignKey("users.id"), nullable=True)
+
+
 class MetricsRollup(Base):
     __tablename__ = "metrics_rollup"
 

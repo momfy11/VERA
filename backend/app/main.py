@@ -12,7 +12,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from backend.app.core.config import settings
 from backend.app.observability.logger import configure_logging
-from backend.app.api.routes import actions, auth, google, health, learning, memories, suggestions
+from backend.app.api.routes import actions, auth, crashes, google, health, learning, memories, suggestions
 from backend.app.api.wake_word_enroll import router as wake_enroll_router
 from backend.app.api.ws import websocket_endpoint
 from backend.app.api.wake_ws import wake_word_endpoint
@@ -114,6 +114,7 @@ app.include_router(memories.router, prefix="/api")
 app.include_router(actions.router, prefix="/api")
 app.include_router(wake_enroll_router, prefix="/api")
 app.include_router(learning.router, prefix="/api")
+app.include_router(crashes.router, prefix="/api")
 
 
 @app.exception_handler(ValidationError)

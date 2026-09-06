@@ -63,6 +63,7 @@
     </queries>
 
     <application
+        android:name=".VeraApplication"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="VERA"
