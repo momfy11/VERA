@@ -8,6 +8,7 @@ import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -53,12 +54,17 @@ class VoiceSession(
                     _state.value = VoiceState.PROCESSING
                 }
                 override fun onError(error: Int) {
+                    Log.w("VoiceSession", "SpeechRecognizer error $error")
+                    recognizer?.destroy()
+                    recognizer = null
                     _state.value = VoiceState.IDLE
                 }
                 override fun onResults(results: Bundle?) {
                     val text = results
                         ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                         ?.firstOrNull() ?: ""
+                    recognizer?.destroy()
+                    recognizer = null
                     if (text.isNotBlank()) onFinal(text)
                     _state.value = VoiceState.IDLE
                 }

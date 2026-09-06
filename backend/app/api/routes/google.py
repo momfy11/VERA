@@ -6,11 +6,13 @@ ever leaving VERA's UI. Replaces having to run google_authorize.py from CLI.
 from __future__ import annotations
 
 import logging
+import secrets
 import threading
 import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from backend.app.api.routes.suggestions import get_user_by_token
@@ -19,6 +21,8 @@ from backend.app.services.google_oauth import (
     OAUTH_LOCAL_PORT,
     SCOPES,
     GoogleAuthError,
+    build_mobile_auth_url,
+    exchange_mobile_code,
     find_client_secret,
     get_token_path,
     load_credentials,
@@ -117,6 +121,80 @@ def google_connect(
 
     threading.Thread(target=_run_flow, daemon=True).start()
     return {"started": True}
+
+
+@router.get("/google/auth-url")
+def google_auth_url(
+    db: Session = Depends(get_db),
+    x_session_token: str | None = Header(default=None, alias="X-Session-Token"),
+) -> dict:
+    """Return the Google OAuth URL for the Android Chrome Custom Tab flow."""
+    get_user_by_token(db, x_session_token)
+
+    try:
+        find_client_secret()
+    except GoogleAuthError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    state = secrets.token_urlsafe(16)
+    _auth_state["state"] = state
+    _auth_state["in_progress"] = True
+    _auth_state["error"] = None
+
+    url = build_mobile_auth_url(state)
+    return {"url": url}
+
+
+@router.get("/google/callback")
+def google_callback(
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+) -> HTMLResponse:
+    """OAuth callback — Google redirects here after user consent on mobile."""
+    _SUCCESS_HTML = b"""<!doctype html>
+<html><head><meta charset="utf-8"><title>VERA signed in</title></head>
+<body style="font-family:system-ui,sans-serif;text-align:center;padding:60px 24px;background:#f7f2ec;color:#1f1d1a">
+  <div style="font-size:46px;color:#2a7f62;margin-bottom:10px">&#10003;</div>
+  <h2 style="margin:0 0 8px;font-weight:600">Gmail connected</h2>
+  <p style="color:#6d635c;margin:0">You can close this tab and return to VERA.</p>
+</body></html>"""
+    _ERROR_HTML = b"""<!doctype html>
+<html><body style="font-family:system-ui;text-align:center;padding:60px;background:#f7f2ec;color:#b1442f">
+<h2>Sign-in failed</h2><p>Return to VERA and try again.</p></body></html>"""
+
+    if error:
+        _auth_state["error"] = error
+        _auth_state["in_progress"] = False
+        return HTMLResponse(_ERROR_HTML.decode(), status_code=400)
+
+    if not code:
+        _auth_state["error"] = "no_code"
+        _auth_state["in_progress"] = False
+        return HTMLResponse(_ERROR_HTML.decode(), status_code=400)
+
+    expected_state = _auth_state.get("state")
+    if expected_state and state != expected_state:
+        _auth_state["error"] = "state_mismatch"
+        _auth_state["in_progress"] = False
+        return HTMLResponse(_ERROR_HTML.decode(), status_code=400)
+
+    try:
+        creds = exchange_mobile_code(code)
+        token_path = get_token_path()
+        token_path.parent.mkdir(parents=True, exist_ok=True)
+        token_path.write_text(creds.to_json())
+        reset_service_cache()
+        _auth_state["completed_at"] = time.time()
+        _auth_state["error"] = None
+        _auth_state["in_progress"] = False
+        logger.info("Google OAuth completed via mobile callback")
+        return HTMLResponse(_SUCCESS_HTML.decode())
+    except Exception as exc:
+        logger.warning("Google OAuth callback failed: %r", exc)
+        _auth_state["error"] = str(exc)
+        _auth_state["in_progress"] = False
+        return HTMLResponse(_ERROR_HTML.decode(), status_code=500)
 
 
 @router.post("/google/disconnect")

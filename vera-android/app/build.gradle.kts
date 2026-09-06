@@ -58,4 +58,5 @@ dependencies {
     implementation(libs.play.services.location)
     implementation(libs.google.material)
     implementation(libs.local.broadcast.manager)
+    implementation(libs.androidx.browser)
 }

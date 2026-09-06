@@ -13,6 +13,7 @@ navigationCompose = "2.7.7"
 playServicesLocation = "21.2.0"
 googleMaterial = "1.12.0"
 localBroadcastManager = "1.1.0"
+androidxBrowser = "1.8.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -34,6 +35,7 @@ security-crypto = { group = "androidx.security", name = "security-crypto", versi
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
 google-material = { group = "com.google.android.material", name = "material", version.ref = "googleMaterial" }
 local-broadcast-manager = { group = "androidx.localbroadcastmanager", name = "localbroadcastmanager", version.ref = "localBroadcastManager" }
+androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "androidxBrowser" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

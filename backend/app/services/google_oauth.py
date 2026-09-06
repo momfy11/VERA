@@ -127,6 +127,34 @@ def gmail_service():
     return _gmail_cache
 
 
+MOBILE_REDIRECT_URI = "https://vera-app.hopto.org/api/google/callback"
+
+
+def build_mobile_auth_url(state: str) -> str:
+    """Generate the OAuth authorization URL for the Android Chrome Custom Tab flow."""
+    from google_auth_oauthlib.flow import Flow  # noqa: PLC0415
+
+    flow = Flow.from_client_secrets_file(str(find_client_secret()), scopes=SCOPES)
+    flow.redirect_uri = MOBILE_REDIRECT_URI
+    url, _ = flow.authorization_url(
+        access_type="offline",
+        prompt="consent",
+        state=state,
+        include_granted_scopes="true",
+    )
+    return url
+
+
+def exchange_mobile_code(code: str) -> "Credentials":
+    """Exchange an authorization code (from mobile callback) for credentials."""
+    from google_auth_oauthlib.flow import Flow  # noqa: PLC0415
+
+    flow = Flow.from_client_secrets_file(str(find_client_secret()), scopes=SCOPES)
+    flow.redirect_uri = MOBILE_REDIRECT_URI
+    flow.fetch_token(code=code)
+    return flow.credentials
+
+
 def reset_service_cache() -> None:
     """Force the next call to rebuild the service clients (e.g. after re-auth)."""
     global _calendar_cache, _gmail_cache

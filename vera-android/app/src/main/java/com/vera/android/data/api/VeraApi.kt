@@ -5,6 +5,9 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.parseToJsonElement
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -134,6 +137,28 @@ class VeraApi(private val http: OkHttpClient = com.vera.android.data.buildHttpCl
         runCatching { http.newCall(req).execute().close() }
     }
 
+    suspend fun getGoogleStatus(token: String): GoogleStatus = withContext(Dispatchers.IO) {
+        val req = Request.Builder()
+            .url("$BASE_URL/api/google/status")
+            .header("X-Session-Token", token)
+            .build()
+        http.newCall(req).execute().use { resp ->
+            json.decodeFromString(resp.body!!.string())
+        }
+    }
+
+    suspend fun getGoogleAuthUrl(token: String): String = withContext(Dispatchers.IO) {
+        val req = Request.Builder()
+            .url("$BASE_URL/api/google/auth-url")
+            .header("X-Session-Token", token)
+            .build()
+        http.newCall(req).execute().use { resp ->
+            check(resp.isSuccessful) { "auth-url failed: ${resp.code}" }
+            val body = json.parseToJsonElement(resp.body!!.string())
+            body.jsonObject["url"]?.jsonPrimitive?.content ?: error("no url in response")
+        }
+    }
+
     suspend fun submitLearningAnswer(token: String, questionId: String, answer: String) = withContext(Dispatchers.IO) {
         val body = json.encodeToString(LearningAnswerRequest(questionId, answer)).toRequestBody(JSON_MEDIA)
         val req = Request.Builder()
@@ -146,4 +171,5 @@ class VeraApi(private val http: OkHttpClient = com.vera.android.data.buildHttpCl
 }
 
 @Serializable private data class WakeStatus(val template_count: Int)
+@Serializable data class GoogleStatus(val connected: Boolean, val email: String? = null, val in_progress: Boolean = false, val error: String? = null)
 @Serializable private data class LearningAnswerRequest(val question_id: String, val answer: String)

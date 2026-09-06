@@ -3,6 +3,7 @@ package com.vera.android.audio
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -11,7 +12,9 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
+import com.vera.android.MainActivity
 import com.vera.android.R
 import com.vera.android.data.buildHttpClient
 import com.vera.android.data.prefs.SecurePrefs
@@ -32,13 +35,22 @@ class VeraForegroundService : Service() {
     companion object {
         private const val CHANNEL_ID = "vera_foreground"
         private const val NOTIF_ID = 1001
+        private const val WAKE_NOTIF_ID = 1002
         private const val WS_WAKE_URL = "wss://vera-app.hopto.org/ws/wake"
         private const val SAMPLE_RATE = 16000
         const val ACTION_PAUSE_WAKE = "pause_wake"
         const val ACTION_RESUME_WAKE = "resume_wake"
+        const val EXTRA_WAKE_TRIGGERED = "wake_triggered"
 
         private val _wakeEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
         val wakeEvents = _wakeEvents.asSharedFlow()
+
+        private val _micReleased = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+        /** Emitted whenever AudioRecord is fully released — callers can await before opening mic. */
+        val micReleased = _micReleased.asSharedFlow()
+
+        /** Called from MainActivity when it handles a wake-triggered launch. */
+        fun triggerWake() { _wakeEvents.tryEmit(Unit) }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -144,6 +156,7 @@ class VeraForegroundService : Service() {
             ar.stop()
             ar.release()
             audioRecord = null
+            _micReleased.tryEmit(Unit)
         }
     }
 
@@ -153,7 +166,52 @@ class VeraForegroundService : Service() {
         audioRecord?.stop()
         wakeWs?.close(1000, "wake detected")
 
-        _wakeEvents.tryEmit(Unit)
+        val pm = getSystemService(PowerManager::class.java)
+        if (pm.isInteractive) {
+            // Screen already on — wait for AudioRecord release then emit
+            scope.launch {
+                // Spin until IO coroutine finishes releasing AudioRecord
+                while (audioRecord != null) kotlinx.coroutines.delay(10)
+                _wakeEvents.tryEmit(Unit)
+            }
+        } else {
+            // Screen off — wake screen, bring Activity to foreground via full-screen notification
+            val wl = pm.newWakeLock(
+                @Suppress("DEPRECATION")
+                PowerManager.PARTIAL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "vera:wake_screen",
+            )
+            wl.acquire(12_000L)
+
+            val launchIntent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra(EXTRA_WAKE_TRIGGERED, true)
+            }
+            val pi = PendingIntent.getActivity(
+                this, 0, launchIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+
+            val nm = getSystemService(NotificationManager::class.java)
+            nm.notify(
+                WAKE_NOTIF_ID,
+                NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setContentTitle("VERA")
+                    .setContentText("Listening…")
+                    .setSmallIcon(R.drawable.ic_launcher_foreground)
+                    .setPriority(NotificationCompat.PRIORITY_HIGH)
+                    .setCategory(NotificationCompat.CATEGORY_CALL)
+                    .setFullScreenIntent(pi, true)
+                    .setAutoCancel(true)
+                    .build(),
+            )
+
+            scope.launch {
+                delay(10_000)
+                if (wl.isHeld) wl.release()
+                nm.cancel(WAKE_NOTIF_ID)
+            }
+        }
 
         // Resume wake word stream after 8s (enough time for command + response)
         scope.launch {

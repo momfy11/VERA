@@ -1,6 +1,9 @@
 package com.vera.android
 
 import android.Manifest
+import android.app.KeyguardManager
+import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -8,6 +11,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import android.content.pm.PackageManager
+import com.vera.android.audio.VeraForegroundService
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.Color
@@ -43,8 +47,39 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { /* permissions handled in OnboardingScreen */ }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.getBooleanExtra(VeraForegroundService.EXTRA_WAKE_TRIGGERED, false)) {
+            handleWakeLaunch()
+        }
+    }
+
+    private fun handleWakeLaunch() {
+        // Show activity over lock screen without requiring unlock
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setTurnScreenOn(true)
+            setShowWhenLocked(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(
+                android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+            )
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            getSystemService(KeyguardManager::class.java)
+                .requestDismissKeyguard(this, null)
+        }
+        // Emit wake event — buffered by SharedFlow, ViewModel picks it up
+        VeraForegroundService.triggerWake()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Handle wake-triggered launch (screen was off when wake word fired)
+        if (intent?.getBooleanExtra(VeraForegroundService.EXTRA_WAKE_TRIGGERED, false) == true) {
+            handleWakeLaunch()
+        }
         enableEdgeToEdge()
         // Request mic at launch so SpeechRecognizer works immediately
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {

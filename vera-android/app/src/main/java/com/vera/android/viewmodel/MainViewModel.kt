@@ -107,8 +107,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun toggleVoice() {
-        if (voiceSession.state.value == VoiceState.LISTENING) voiceSession.stopListening()
-        else voiceSession.startListening()
+        if (voiceSession.state.value == VoiceState.LISTENING) {
+            voiceSession.stopListening()
+            return
+        }
+        val ctx = getApplication<Application>()
+        // Send PAUSE_WAKE to release AudioRecord, then await confirmation before opening mic
+        ctx.startService(Intent(ctx, VeraForegroundService::class.java)
+            .setAction(VeraForegroundService.ACTION_PAUSE_WAKE))
+        viewModelScope.launch {
+            // Wait for service to actually release AudioRecord, max 400ms
+            withTimeoutOrNull(400) { VeraForegroundService.micReleased.first() }
+            voiceSession.startListening()
+        }
     }
 
     fun dismissFirstLogin() = _ui.update { it.copy(firstLogin = false) }
@@ -134,6 +145,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private fun collectWsMessages() {
+        val ctx = getApplication<Application>()
         viewModelScope.launch {
             ws.messages.collect { msg ->
                 when (msg) {
@@ -159,7 +171,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     is ServerMessage.SetReminder -> appLauncher.scheduleReminder(msg.timeIso, msg.text)
                     is ServerMessage.MediaControl -> mediaController.execute(msg.action)
                     is ServerMessage.LaunchApp -> appLauncher.launchApp(msg.uri)
-                    is ServerMessage.ProactiveQuestion -> showProactiveNotification(app, msg)
+                    is ServerMessage.ProactiveQuestion -> showProactiveNotification(msg)
                     is ServerMessage.Error -> {
                         typingTimeoutJob?.cancel()
                         _ui.update { it.copy(error = msg.message, isTyping = false) }
@@ -173,13 +185,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 when (vs) {
                     VoiceState.LISTENING -> {
                         tts.stop()
-                        // Free the mic so SpeechRecognizer can take over
-                        app.startService(Intent(app, VeraForegroundService::class.java)
-                            .setAction(VeraForegroundService.ACTION_PAUSE_WAKE))
+                        // PAUSE_WAKE already sent by toggleVoice() (button) or service stopped itself (wake word)
                     }
                     VoiceState.IDLE -> {
                         // Resume wake word stream after speech session ends
-                        app.startService(Intent(app, VeraForegroundService::class.java)
+                        ctx.startService(Intent(ctx, VeraForegroundService::class.java)
                             .setAction(VeraForegroundService.ACTION_RESUME_WAKE))
                     }
                     else -> {}
@@ -188,26 +198,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun showProactiveNotification(app: Application, msg: ServerMessage.ProactiveQuestion) {
-        val nm = app.getSystemService(NotificationManager::class.java)
+    private fun showProactiveNotification(msg: ServerMessage.ProactiveQuestion) {
+        val ctx = getApplication<Application>()
+        val nm = ctx.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
             NotificationChannel(ProactiveQuestionReceiver.CHANNEL_ID, "VERA Learning", NotificationManager.IMPORTANCE_DEFAULT)
         )
         val notifId = msg.questionId.hashCode()
 
         fun actionIntent(answer: String): PendingIntent {
-            val i = Intent(app, ProactiveQuestionReceiver::class.java).apply {
+            val i = Intent(ctx, ProactiveQuestionReceiver::class.java).apply {
                 putExtra(ProactiveQuestionReceiver.EXTRA_QUESTION_ID, msg.questionId)
                 putExtra(ProactiveQuestionReceiver.EXTRA_ANSWER, answer)
                 putExtra(ProactiveQuestionReceiver.EXTRA_NOTIF_ID, notifId)
             }
             return PendingIntent.getBroadcast(
-                app, (msg.questionId + answer).hashCode(), i,
+                ctx, (msg.questionId + answer).hashCode(), i,
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
         }
 
-        val notification = NotificationCompat.Builder(app, ProactiveQuestionReceiver.CHANNEL_ID)
+        val notification = NotificationCompat.Builder(ctx, ProactiveQuestionReceiver.CHANNEL_ID)
             .setContentTitle(msg.title)
             .setContentText(msg.body)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
