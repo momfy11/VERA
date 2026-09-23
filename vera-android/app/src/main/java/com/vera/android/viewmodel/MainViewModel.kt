@@ -17,6 +17,11 @@ import com.vera.android.data.buildHttpClient
 import com.vera.android.data.prefs.SecurePrefs
 import com.vera.android.data.ws.ServerMessage
 import com.vera.android.data.ws.VeraWebSocket
+import com.vera.android.avatar.AvatarAnimationController
+import com.vera.android.avatar.AvatarExpression
+import com.vera.android.avatar.AvatarLipSyncController
+import com.vera.android.avatar.AvatarRenderState
+import com.vera.android.avatar.EXPRESSION_PRESETS
 import com.vera.android.system.AppLauncher
 import com.vera.android.system.ProactiveQuestionReceiver
 import com.vera.android.system.VeraMediaController
@@ -68,6 +73,43 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }.stateIn(viewModelScope, SharingStarted.Eagerly, FaceState.IDLE)
 
+    // ── Avatar system ─────────────────────────────────────────────────────────
+    private val animController = AvatarAnimationController()
+    private val lipSync = AvatarLipSyncController()
+
+    private val _expression = MutableStateFlow(AvatarExpression.NEUTRAL)
+
+    // Intermediate: bundle the 4 continuous animation ticks into one typed flow
+    private data class AnimTick(val breath: Float, val blink: Float, val gazeX: Float, val pulse: Float)
+    private val _animTick = combine(
+        animController.breathAmount,
+        animController.blinkAmount,
+        animController.eyeGazeX,
+        animController.circuitPulse,
+    ) { breath, blink, gazeX, pulse -> AnimTick(breath, blink, gazeX, pulse) }
+
+    /** Single render state consumed by [VeraAvatar]. Combine at most 3 flows here. */
+    val avatarState: StateFlow<AvatarRenderState> = combine(
+        _expression,
+        _animTick,
+        lipSync.amplitude,
+    ) { expr, anim, amp ->
+        AvatarRenderState(
+            expression   = EXPRESSION_PRESETS[expr] ?: com.vera.android.avatar.ExpressionWeights(),
+            lipSync      = amp,
+            blinkAmount  = anim.blink,
+            breathAmount = anim.breath,
+            eyeGazeX     = anim.gazeX,
+            eyeGazeY     = 0f,
+            circuitPulse = anim.pulse,
+        )
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, AvatarRenderState())
+
+    /** Set VERA's facial expression from backend or internal logic. */
+    fun setExpression(expression: AvatarExpression) {
+        _expression.value = expression
+    }
+
     private var nextId = 0L
     private var ttsEnabled = prefs.ttsEnabled
     private var ttsRate = prefs.ttsRate
@@ -87,6 +129,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     init {
         tts.init {}
         tts.onDone = {}
+        animController.start(viewModelScope)
+        // Start/stop Visualizer in sync with TTS speaking state
+        viewModelScope.launch {
+            tts.isSpeaking.collect { speaking ->
+                if (speaking) lipSync.start() else lipSync.stop()
+            }
+        }
         collectWsMessages()
         val token = prefs.sessionToken
         if (token != null) {
@@ -263,6 +312,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     override fun onCleared() {
         super.onCleared()
+        animController.stop()
+        lipSync.release()
         voiceSession.stopListening()
         tts.destroy()
         ws.disconnect()

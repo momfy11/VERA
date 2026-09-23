@@ -4,8 +4,9 @@
     <!-- Network -->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Audio -->
+    <!-- Audio — MODIFY_AUDIO_SETTINGS needed for Visualizer output-mix capture (lip sync) -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <!-- Camera + image access -->
     <uses-permission android:name="android.permission.CAMERA" />

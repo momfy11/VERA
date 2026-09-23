@@ -1,9 +1,5 @@
 package com.vera.android.ui.main
 
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -22,13 +18,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.airbnb.lottie.compose.LottieAnimation
-import com.airbnb.lottie.compose.LottieCompositionSpec
-import com.airbnb.lottie.compose.LottieConstants
-import com.airbnb.lottie.compose.animateLottieCompositionAsState
-import com.airbnb.lottie.compose.rememberLottieComposition
-import com.vera.android.R
 import com.vera.android.audio.VoiceState
+import com.vera.android.avatar.VeraAvatar
 import com.vera.android.viewmodel.ActionRequest
 import com.vera.android.viewmodel.FaceState
 import com.vera.android.viewmodel.MainViewModel
@@ -48,6 +39,7 @@ fun VoiceScreen(
 ) {
     val ui by vm.ui.collectAsState()
     val faceState by vm.faceState.collectAsState()
+    val avatarState by vm.avatarState.collectAsState()
     var micButtonActive by remember { mutableStateOf(false) }
 
     LaunchedEffect(ui.voiceState) {
@@ -92,7 +84,7 @@ fun VoiceScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(32.dp),
         ) {
-            VeraFaceAnimation(faceState = faceState)
+            VeraAvatar(renderState = avatarState)
 
             // Status / interim text
             val statusText = when (faceState) {
@@ -157,32 +149,6 @@ fun VoiceScreen(
     }
 }
 
-@Composable
-private fun VeraFaceAnimation(faceState: FaceState) {
-    val animRes = when (faceState) {
-        FaceState.IDLE      -> R.raw.vera_idle
-        FaceState.LISTENING -> R.raw.vera_listening
-        FaceState.THINKING  -> R.raw.vera_thinking
-        FaceState.SPEAKING  -> R.raw.vera_speaking
-    }
-
-    AnimatedContent(
-        targetState = animRes,
-        transitionSpec = { fadeIn() togetherWith fadeOut() },
-        label = "face_anim",
-    ) { res ->
-        val composition by rememberLottieComposition(LottieCompositionSpec.RawRes(res))
-        val progress by animateLottieCompositionAsState(
-            composition = composition,
-            iterations = LottieConstants.IterateForever,
-        )
-        LottieAnimation(
-            composition = composition,
-            progress = { progress },
-            modifier = Modifier.size(280.dp),
-        )
-    }
-}
 
 @Composable
 private fun ActionDialog(action: ActionRequest, vm: MainViewModel) {
