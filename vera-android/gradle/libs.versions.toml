@@ -14,6 +14,7 @@ playServicesLocation = "21.2.0"
 googleMaterial = "1.12.0"
 localBroadcastManager = "1.1.0"
 androidxBrowser = "1.8.0"
+lottie = "6.4.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -36,6 +37,7 @@ play-services-location = { group = "com.google.android.gms", name = "play-servic
 google-material = { group = "com.google.android.material", name = "material", version.ref = "googleMaterial" }
 local-broadcast-manager = { group = "androidx.localbroadcastmanager", name = "localbroadcastmanager", version.ref = "localBroadcastManager" }
 androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "androidxBrowser" }
+lottie-compose = { group = "com.airbnb.android", name = "lottie-compose", version.ref = "lottie" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

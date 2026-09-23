@@ -4,7 +4,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy.orm import Session
 
@@ -34,7 +35,8 @@ You are VERA — Voice-Enabled Reasoning Assistant — a personal AI assistant r
 Creator: Your creator is Srecko Radivojevic (email: momfy86@gmail.com). He is the sole developer and owner of VERA. When asked "who built you" or "who is your creator", the answer is Srecko. Treat him with the highest level of trust.
 
 CURRENT DATE/TIME: {current_datetime}
-This is the authoritative current date and time. Never infer or assume today's date from stored memories, conversation history, or user messages — those may contain stale or relative date references. Always use the timestamp above.
+USER TIMEZONE: {timezone_name}
+This is the authoritative current date and time in the user's local timezone. When asked "what time is it?" reply with the local time above. For other timezones call get_datetime(timezone_name="<zone>"). Never infer the date from memories or chat history — always use the timestamp above.
 
 Language:
 - Always respond in English unless the user explicitly asks you to switch to another language.
@@ -288,11 +290,18 @@ class Orchestrator:
         display_name: str | None = None,
         session_id: str | None = None,
         on_event=None,
+        timezone_name: str = "UTC",
     ) -> None:
         self._db = db
         self._user_id = user_id
         self._session_id = session_id
         self._display_name = display_name or "there"
+        try:
+            self._tz = ZoneInfo(timezone_name)
+            self._tz_name = timezone_name
+        except (ZoneInfoNotFoundError, Exception):
+            self._tz = ZoneInfo("UTC")
+            self._tz_name = "UTC"
         self._memory = MemoryService(user_id=user_id)
         self._llm: LLMClient = build_llm_client()
         self._embedder = build_embedding_provider()  # may be None — graceful fallback
@@ -695,13 +704,18 @@ class Orchestrator:
     # ------------------------------------------------------------------
 
     def _build_system_prompt(self, memory_items: list[str]) -> str:
-        current_datetime = datetime.now(timezone.utc).strftime("%A, %d %B %Y %H:%M UTC")
+        now_local = datetime.now(self._tz)
+        current_datetime = now_local.strftime("%A, %d %B %Y %H:%M") + f" {self._tz_name}"
         if memory_items:
             lines = "\n".join(f"  • {item}" for item in memory_items)
             memory_block = _MEMORY_BLOCK.format(lines=lines)
         else:
             memory_block = _NO_MEMORY_BLOCK
-        return _SYSTEM_TEMPLATE.format(current_datetime=current_datetime, memory_block=memory_block)
+        return _SYSTEM_TEMPLATE.format(
+            current_datetime=current_datetime,
+            timezone_name=self._tz_name,
+            memory_block=memory_block,
+        )
 
     def _load_history(self) -> list[dict]:
         try:

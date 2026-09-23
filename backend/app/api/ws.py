@@ -143,11 +143,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             await websocket.close(code=1008)
             return
 
-        token: str | None = (
-            hello.get("payload", {}).get("token")
-            if isinstance(hello.get("payload"), dict)
-            else None
-        )
+        hello_payload = hello.get("payload", {}) if isinstance(hello.get("payload"), dict) else {}
+        token: str | None = hello_payload.get("token")
+        client_tz: str = hello_payload.get("tz") or "UTC"
 
         # ── Step 2: validate token ───────────────────────────────────────
         _ws_log.debug("WS hello received — validating token (len=%d)", len(token or ""))
@@ -183,6 +181,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 display_name=user.display_name,
                 session_id=session.id,
                 on_event=_send_live_event,
+                timezone_name=client_tz,
             )
         except Exception as exc:
             _ws_log.exception("Failed to initialise Orchestrator for user %s: %r", user.email, exc)

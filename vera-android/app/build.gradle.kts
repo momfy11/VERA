@@ -59,4 +59,5 @@ dependencies {
     implementation(libs.google.material)
     implementation(libs.local.broadcast.manager)
     implementation(libs.androidx.browser)
+    implementation(libs.lottie.compose)
 }

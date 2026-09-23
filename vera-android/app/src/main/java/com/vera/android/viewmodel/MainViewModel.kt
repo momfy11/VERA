@@ -23,6 +23,8 @@ import com.vera.android.system.VeraMediaController
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
+enum class FaceState { IDLE, LISTENING, THINKING, SPEAKING }
+
 data class ChatMessage(val id: Long, val role: String, val text: String, val imageBase64: String? = null)
 
 data class ActionRequest(
@@ -57,6 +59,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _ui = MutableStateFlow(MainUiState())
     val ui: StateFlow<MainUiState> = _ui.asStateFlow()
 
+    val faceState: StateFlow<FaceState> = combine(ui, tts.isSpeaking) { uiState, speaking ->
+        when {
+            uiState.voiceState == VoiceState.LISTENING -> FaceState.LISTENING
+            speaking -> FaceState.SPEAKING
+            uiState.isTyping -> FaceState.THINKING
+            else -> FaceState.IDLE
+        }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, FaceState.IDLE)
+
     private var nextId = 0L
     private var ttsEnabled = prefs.ttsEnabled
     private var ttsRate = prefs.ttsRate
@@ -83,8 +94,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             startForegroundService(app)
         }
         viewModelScope.launch {
+            var lastWakeMs = 0L
             VeraForegroundService.wakeEvents.collect {
-                if (voiceSession.state.value == VoiceState.IDLE) {
+                val now = System.currentTimeMillis()
+                if (voiceSession.state.value == VoiceState.IDLE && now - lastWakeMs > 30_000) {
+                    lastWakeMs = now
                     voiceSession.startListening()
                 }
             }
@@ -105,6 +119,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             _ui.update { if (it.isTyping) it.copy(isTyping = false, error = "No response — check connection") else it }
         }
     }
+
+    fun startVoiceManual() {
+        val ctx = getApplication<Application>()
+        ctx.startService(Intent(ctx, VeraForegroundService::class.java)
+            .setAction(VeraForegroundService.ACTION_PAUSE_WAKE))
+        viewModelScope.launch {
+            withTimeoutOrNull(400) { VeraForegroundService.micReleased.first() }
+            voiceSession.startListening()
+        }
+    }
+
+    fun stopVoice() = voiceSession.stopListening()
 
     fun toggleVoice() {
         if (voiceSession.state.value == VoiceState.LISTENING) {
@@ -188,9 +214,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                         // PAUSE_WAKE already sent by toggleVoice() (button) or service stopped itself (wake word)
                     }
                     VoiceState.IDLE -> {
-                        // Resume wake word stream after speech session ends
-                        ctx.startService(Intent(ctx, VeraForegroundService::class.java)
-                            .setAction(VeraForegroundService.ACTION_RESUME_WAKE))
+                        viewModelScope.launch {
+                            tts.isSpeaking.first { !it }
+                            ctx.startService(Intent(ctx, VeraForegroundService::class.java)
+                                .setAction(VeraForegroundService.ACTION_RESUME_WAKE))
+                        }
                     }
                     else -> {}
                 }

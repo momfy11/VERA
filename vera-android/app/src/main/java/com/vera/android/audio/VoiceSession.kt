@@ -82,6 +82,9 @@ class VoiceSession(
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US")
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+                // Extend VAD silence windows — default ~1s causes early cutoff mid-sentence
+                putExtra("android.speech.extra.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS", 3000L)
+                putExtra("android.speech.extra.SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS", 1500L)
             })
         }
     }

@@ -15,6 +15,7 @@ import com.vera.android.audio.VeraForegroundService
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.remember
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -22,8 +23,9 @@ import androidx.navigation.compose.rememberNavController
 import com.vera.android.data.prefs.SecurePrefs
 import com.vera.android.ui.login.LoginScreen
 import com.vera.android.ui.main.HelpScreen
-import com.vera.android.ui.main.MainScreen
+import com.vera.android.ui.main.HistoryScreen
 import com.vera.android.ui.main.OnboardingScreen
+import com.vera.android.ui.main.VoiceScreen
 import com.vera.android.ui.memories.MemoriesScreen
 import com.vera.android.ui.settings.SettingsScreen
 import com.vera.android.ui.settings.WakeWordTrainingScreen
@@ -124,12 +126,19 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("main") {
                         val vm: MainViewModel = viewModel()
-                        MainScreen(
+                        VoiceScreen(
                             vm = vm,
+                            onOpenHistory = { navController.navigate("history") },
                             onOpenSettings = { navController.navigate("settings") },
-                            onOpenMemories = { navController.navigate("memories") },
-                            onOpenSuggestions = { navController.navigate("suggestions") },
-                            onOpenHelp = { navController.navigate("help") },
+                        )
+                    }
+                    composable("history") {
+                        // Share same ViewModel instance as "main" so messages are visible
+                        val mainEntry = remember(navController) { navController.getBackStackEntry("main") }
+                        val vm: MainViewModel = viewModel(mainEntry)
+                        HistoryScreen(
+                            vm = vm,
+                            onBack = { navController.popBackStack() },
                         )
                     }
                     composable("settings") {

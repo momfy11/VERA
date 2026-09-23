@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 SAMPLE_RATE = 16000
 _TEMPLATES_PATH = Path(os.environ.get("WAKE_TEMPLATES_PATH", "/app/wake_models/templates.npy"))
-_SIMILARITY_THRESHOLD = float(os.environ.get("WAKE_SIMILARITY_THRESHOLD", "0.75"))
+_SIMILARITY_THRESHOLD = float(os.environ.get("WAKE_SIMILARITY_THRESHOLD", "0.70"))
 
 _melspec_session = None
 _embedding_session = None
@@ -137,10 +137,19 @@ def save_template_from_audio(audio_int16: bytes) -> int:
 
     audio = np.frombuffer(audio_int16, dtype=np.int16).astype(np.float32) / 32768.0
 
-    # Use middle second to skip any click / silence at edges
+    # Find the 1-second window with highest RMS energy — captures actual speech,
+    # not silence or click at the edges (unlike a fixed "middle second" approach)
     total = len(audio)
-    start = max(0, total // 2 - SAMPLE_RATE // 2)
-    segment = audio[start:start + SAMPLE_RATE]
+    step = SAMPLE_RATE // 4  # 250 ms steps
+    best_start = 0
+    best_energy = -1.0
+    for s in range(0, max(1, total - SAMPLE_RATE + 1), step):
+        window = audio[s:s + SAMPLE_RATE]
+        energy = float(np.dot(window, window))
+        if energy > best_energy:
+            best_energy = energy
+            best_start = s
+    segment = audio[best_start:best_start + SAMPLE_RATE]
 
     embedding = _compute_embedding(segment)
     if embedding is None:

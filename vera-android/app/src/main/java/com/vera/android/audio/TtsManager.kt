@@ -4,10 +4,11 @@ import android.content.Context
 import android.media.AudioManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
-import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.util.Locale
 import java.util.UUID
-import kotlin.coroutines.resume
 
 class TtsManager(private val context: Context) {
 
@@ -15,15 +16,24 @@ class TtsManager(private val context: Context) {
     private var ready = false
     var onDone: (() -> Unit)? = null
 
+    private val _isSpeaking = MutableStateFlow(false)
+    val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
+
     fun init(onReady: () -> Unit) {
         tts = TextToSpeech(context) { status ->
             if (status == TextToSpeech.SUCCESS) {
                 tts?.language = Locale.ENGLISH
                 tts?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(utteranceId: String?) {}
-                    override fun onDone(utteranceId: String?) { onDone?.invoke() }
+                    override fun onStart(utteranceId: String?) { _isSpeaking.value = true }
+                    override fun onDone(utteranceId: String?) {
+                        _isSpeaking.value = false
+                        onDone?.invoke()
+                    }
                     @Deprecated("Deprecated in Java")
-                    override fun onError(utteranceId: String?) {}
+                    override fun onError(utteranceId: String?) {
+                        _isSpeaking.value = false
+                        onDone?.invoke()
+                    }
                 })
                 ready = true
                 onReady()
@@ -44,13 +54,15 @@ class TtsManager(private val context: Context) {
         tts?.speak(cleaned, TextToSpeech.QUEUE_FLUSH, null, UUID.randomUUID().toString())
     }
 
-    fun stop() = tts?.stop()
-
-    fun isSpeaking() = tts?.isSpeaking == true
+    fun stop() {
+        tts?.stop()
+        _isSpeaking.value = false
+    }
 
     fun destroy() {
         tts?.stop()
         tts?.shutdown()
         tts = null
+        _isSpeaking.value = false
     }
 }

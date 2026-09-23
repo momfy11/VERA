@@ -34,21 +34,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.vera.android.audio.VoiceState
 import com.vera.android.viewmodel.ChatMessage
 import com.vera.android.viewmodel.MainViewModel
 import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 
-private val BgColor = Color(0xFF0A0A12)
-private val SurfaceColor = Color(0xFF13131F)
-private val UserBubble = Color(0xFF6750A4)
-private val AssistantBubble = Color(0xFF1C1C2E)
-private val OrangeAccent = Color(0xFFFF6D00)
-private val TextPrimary = Color(0xFFF0F0F0)
-private val TextSecondary = Color(0xFF888899)
-
-// ── Image helpers ─────────────────────────────────────────────────────────────
+private val HBgColor = Color(0xFF0A0A12)
+private val HSurfaceColor = Color(0xFF13131F)
+private val HUserBubble = Color(0xFF6750A4)
+private val HAssistantBubble = Color(0xFF1C1C2E)
+private val HOrangeAccent = Color(0xFFFF6D00)
+private val HTextPrimary = Color(0xFFF0F0F0)
+private val HTextSecondary = Color(0xFF888899)
 
 private fun scaleBitmapBytes(bytes: ByteArray, maxDim: Int = 1024): ByteArray {
     val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -63,39 +60,34 @@ private fun scaleBitmapBytes(bytes: ByteArray, maxDim: Int = 1024): ByteArray {
     return ByteArrayOutputStream().also { out.compress(Bitmap.CompressFormat.JPEG, 85, it) }.toByteArray()
 }
 
-private fun uriToBase64(context: android.content.Context, uri: Uri): Pair<String, String>? =
+private fun uriToBase64History(context: android.content.Context, uri: Uri): Pair<String, String>? =
     runCatching {
         val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
         Pair(Base64.encodeToString(scaleBitmapBytes(bytes), Base64.NO_WRAP), "image/jpeg")
     }.getOrNull()
 
-private fun bitmapToBase64(bitmap: Bitmap): Pair<String, String> {
+private fun bitmapToBase64History(bitmap: Bitmap): Pair<String, String> {
     val baos = ByteArrayOutputStream()
     bitmap.compress(Bitmap.CompressFormat.JPEG, 85, baos)
     return Pair(Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP), "image/jpeg")
 }
 
-private fun pasteImageFromClipboard(context: android.content.Context): Pair<String, String>? {
+private fun pasteImageFromClipboardHistory(context: android.content.Context): Pair<String, String>? {
     val cm = context.getSystemService(ClipboardManager::class.java) ?: return null
     val clip = cm.primaryClip ?: return null
     for (i in 0 until clip.itemCount) {
         val uri = clip.getItemAt(i).uri ?: continue
         if (context.contentResolver.getType(uri)?.startsWith("image/") == true)
-            return uriToBase64(context, uri)
+            return uriToBase64History(context, uri)
     }
     return null
 }
 
-// ── Screen ────────────────────────────────────────────────────────────────────
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(
+fun HistoryScreen(
     vm: MainViewModel,
-    onOpenSettings: () -> Unit,
-    onOpenMemories: () -> Unit,
-    onOpenSuggestions: () -> Unit,
-    onOpenHelp: () -> Unit,
+    onBack: () -> Unit,
 ) {
     val context = LocalContext.current
     val ui by vm.ui.collectAsState()
@@ -105,19 +97,12 @@ fun MainScreen(
     var inputText by remember { mutableStateOf("") }
     var pendingImage by remember { mutableStateOf<Pair<String, String>?>(null) }
     var showAttachMenu by remember { mutableStateOf(false) }
-    // Tracks ONLY manual mic button state — NOT wake-word activations
-    var micButtonActive by remember { mutableStateOf(false) }
-
-    // Reset button when voice session completes (user spoke or errored)
-    LaunchedEffect(ui.voiceState) {
-        if (ui.voiceState == VoiceState.IDLE) micButtonActive = false
-    }
 
     val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        uri?.let { pendingImage = uriToBase64(context, it) }
+        uri?.let { pendingImage = uriToBase64History(context, it) }
     }
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { bitmap ->
-        bitmap?.let { pendingImage = bitmapToBase64(it) }
+        bitmap?.let { pendingImage = bitmapToBase64History(it) }
     }
     val cameraPermLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) cameraLauncher.launch(null)
@@ -135,95 +120,59 @@ fun MainScreen(
         pendingImage = null
     }
 
-    // ── Attach menu dialog ────────────────────────────────────────────────
     if (showAttachMenu) {
         AlertDialog(
             onDismissRequest = { showAttachMenu = false },
-            containerColor = SurfaceColor,
-            titleContentColor = OrangeAccent,
-            textContentColor = TextPrimary,
+            containerColor = HSurfaceColor,
+            titleContentColor = HOrangeAccent,
+            textContentColor = HTextPrimary,
             title = { Text("Attach image", fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton(
-                        onClick = { galleryLauncher.launch("image/*"); showAttachMenu = false },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Choose from gallery", color = TextPrimary) }
-                    TextButton(
-                        onClick = { cameraPermLauncher.launch(Manifest.permission.CAMERA); showAttachMenu = false },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Take photo", color = TextPrimary) }
-                    TextButton(
-                        onClick = {
-                            pasteImageFromClipboard(context)?.let { pendingImage = it }
-                            showAttachMenu = false
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Paste from clipboard", color = TextPrimary) }
+                    TextButton(onClick = { galleryLauncher.launch("image/*"); showAttachMenu = false }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Choose from gallery", color = HTextPrimary)
+                    }
+                    TextButton(onClick = { cameraPermLauncher.launch(Manifest.permission.CAMERA); showAttachMenu = false }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Take photo", color = HTextPrimary)
+                    }
+                    TextButton(onClick = { pasteImageFromClipboardHistory(context)?.let { pendingImage = it }; showAttachMenu = false }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Paste from clipboard", color = HTextPrimary)
+                    }
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showAttachMenu = false }) { Text("Cancel", color = TextSecondary) }
+                TextButton(onClick = { showAttachMenu = false }) { Text("Cancel", color = HTextSecondary) }
             },
-        )
-    }
-
-    if (ui.firstLogin) {
-        WelcomeDialog(displayName = ui.displayName, onDismiss = vm::dismissFirstLogin)
-    }
-
-    ui.pendingAction?.let { action ->
-        AlertDialog(
-            onDismissRequest = { vm.rejectAction(action.actionId) },
-            containerColor = SurfaceColor,
-            titleContentColor = TextPrimary,
-            textContentColor = TextSecondary,
-            title = { Text("Confirm") },
-            text = { Text(action.summary) },
-            confirmButton = { TextButton(onClick = { vm.approveAction(action.actionId) }) { Text("Approve", color = OrangeAccent) } },
-            dismissButton = { TextButton(onClick = { vm.rejectAction(action.actionId) }) { Text("Reject", color = TextSecondary) } },
         )
     }
 
     Scaffold(
-        containerColor = BgColor,
+        containerColor = HBgColor,
         topBar = {
             TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("VERA", color = OrangeAccent, fontWeight = FontWeight.Bold, fontSize = 22.sp)
-                        Box(
-                            modifier = Modifier.size(7.dp).clip(CircleShape)
-                                .background(if (ui.isConnected) Color(0xFF22CC66) else Color(0xFF666666))
-                        )
-                    }
+                title = { Text("History", color = HTextPrimary, fontWeight = FontWeight.SemiBold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back", tint = HTextSecondary) }
                 },
-                actions = {
-                    IconButton(onClick = onOpenHelp) { Icon(Icons.Default.Help, "Help", tint = TextSecondary) }
-                    IconButton(onClick = onOpenSuggestions) { Icon(Icons.Default.Lightbulb, "Suggestions", tint = TextSecondary) }
-                    IconButton(onClick = onOpenMemories) { Icon(Icons.Default.Memory, "Memories", tint = TextSecondary) }
-                    IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, "Settings", tint = TextSecondary) }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = SurfaceColor),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = HSurfaceColor),
             )
         },
         bottomBar = {
             Column(
                 modifier = Modifier
-                    .background(SurfaceColor)
+                    .background(HSurfaceColor)
                     .navigationBarsPadding()
                     .imePadding()
             ) {
                 if (ui.interimText.isNotBlank()) {
                     Text(
                         ui.interimText,
-                        color = TextSecondary,
+                        color = HTextSecondary,
                         fontSize = 13.sp,
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
 
-                // ── Pending image preview ─────────────────────────────────
                 AnimatedVisibility(visible = pendingImage != null) {
                     pendingImage?.let { (b64, _) ->
                         val previewBitmap = remember(b64) {
@@ -241,44 +190,38 @@ fun MainScreen(
                                 Image(
                                     bitmap = bmp,
                                     contentDescription = "Selected image",
-                                    modifier = Modifier
-                                        .size(64.dp)
-                                        .clip(RoundedCornerShape(8.dp)),
+                                    modifier = Modifier.size(64.dp).clip(RoundedCornerShape(8.dp)),
                                     contentScale = ContentScale.Crop,
                                 )
                             }
                             IconButton(onClick = { pendingImage = null }) {
-                                Icon(Icons.Default.Close, "Remove image", tint = TextSecondary)
+                                Icon(Icons.Default.Close, "Remove image", tint = HTextSecondary)
                             }
                         }
                     }
                 }
 
-                // ── Input row ─────────────────────────────────────────────
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    IconButton(
-                        onClick = { showAttachMenu = true },
-                        modifier = Modifier.size(40.dp),
-                    ) {
-                        Icon(Icons.Default.AddPhotoAlternate, "Attach image", tint = TextSecondary)
+                    IconButton(onClick = { showAttachMenu = true }, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Default.AddPhotoAlternate, "Attach image", tint = HTextSecondary)
                     }
 
                     OutlinedTextField(
                         value = inputText,
                         onValueChange = { inputText = it },
                         modifier = Modifier.weight(1f),
-                        placeholder = { Text("Message VERA…", color = TextSecondary, fontSize = 14.sp) },
+                        placeholder = { Text("Message VERA…", color = HTextSecondary, fontSize = 14.sp) },
                         maxLines = 4,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = TextPrimary,
-                            unfocusedTextColor = TextPrimary,
-                            focusedBorderColor = OrangeAccent,
+                            focusedTextColor = HTextPrimary,
+                            unfocusedTextColor = HTextPrimary,
+                            focusedBorderColor = HOrangeAccent,
                             unfocusedBorderColor = Color(0xFF2A2A3A),
-                            cursorColor = OrangeAccent,
+                            cursorColor = HOrangeAccent,
                             focusedContainerColor = Color(0xFF0D0D1A),
                             unfocusedContainerColor = Color(0xFF0D0D1A),
                         ),
@@ -288,33 +231,11 @@ fun MainScreen(
                         trailingIcon = {
                             if (inputText.isNotBlank() || pendingImage != null) {
                                 IconButton(onClick = { doSend() }) {
-                                    Icon(Icons.Default.Send, "Send", tint = OrangeAccent)
+                                    Icon(Icons.Default.Send, "Send", tint = HOrangeAccent)
                                 }
                             }
                         }
                     )
-
-                    FilledIconButton(
-                        onClick = {
-                            if (micButtonActive) {
-                                micButtonActive = false
-                                vm.stopVoice()
-                            } else {
-                                micButtonActive = true
-                                vm.startVoiceManual()
-                            }
-                        },
-                        colors = IconButtonDefaults.filledIconButtonColors(
-                            containerColor = if (micButtonActive) Color(0xFFCC2200) else OrangeAccent,
-                        ),
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        Icon(
-                            if (micButtonActive) Icons.Default.MicOff else Icons.Default.Mic,
-                            "Voice",
-                            tint = Color.White,
-                        )
-                    }
                 }
             }
         },
@@ -325,8 +246,8 @@ fun MainScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxSize().padding(padding),
         ) {
-            items(ui.messages, key = { it.id }) { msg -> MessageBubble(msg) }
-            if (ui.isTyping) { item { TypingIndicator() } }
+            items(ui.messages, key = { it.id }) { msg -> HistoryMessageBubble(msg) }
+            if (ui.isTyping) { item { HistoryTypingIndicator() } }
             if (ui.error != null) {
                 item { Text(ui.error!!, color = Color(0xFFFF5555), fontSize = 13.sp, modifier = Modifier.padding(8.dp)) }
             }
@@ -335,7 +256,7 @@ fun MainScreen(
 }
 
 @Composable
-private fun MessageBubble(msg: ChatMessage) {
+private fun HistoryMessageBubble(msg: ChatMessage) {
     val isUser = msg.role == "user"
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -343,7 +264,7 @@ private fun MessageBubble(msg: ChatMessage) {
     ) {
         if (!isUser) {
             Box(
-                modifier = Modifier.padding(end = 8.dp).size(28.dp).clip(CircleShape).background(OrangeAccent),
+                modifier = Modifier.padding(end = 8.dp).size(28.dp).clip(CircleShape).background(HOrangeAccent),
                 contentAlignment = Alignment.Center,
             ) {
                 Text("V", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -359,7 +280,7 @@ private fun MessageBubble(msg: ChatMessage) {
                         bottomEnd = if (isUser) 4.dp else 18.dp,
                     )
                 )
-                .background(if (isUser) UserBubble else AssistantBubble)
+                .background(if (isUser) HUserBubble else HAssistantBubble)
                 .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -374,16 +295,13 @@ private fun MessageBubble(msg: ChatMessage) {
                         Image(
                             bitmap = bmp,
                             contentDescription = "Image",
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 200.dp)
-                                .clip(RoundedCornerShape(8.dp)),
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp).clip(RoundedCornerShape(8.dp)),
                             contentScale = ContentScale.Fit,
                         )
                     }
                 }
                 if (msg.text.isNotBlank()) {
-                    Text(msg.text, color = TextPrimary, fontSize = 15.sp, lineHeight = 22.sp)
+                    Text(msg.text, color = HTextPrimary, fontSize = 15.sp, lineHeight = 22.sp)
                 }
             }
         }
@@ -391,51 +309,19 @@ private fun MessageBubble(msg: ChatMessage) {
 }
 
 @Composable
-private fun TypingIndicator() {
+private fun HistoryTypingIndicator() {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(
-            modifier = Modifier.size(28.dp).clip(CircleShape).background(OrangeAccent),
+            modifier = Modifier.size(28.dp).clip(CircleShape).background(HOrangeAccent),
             contentAlignment = Alignment.Center,
         ) {
             Text("V", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
         Box(
-            modifier = Modifier.clip(RoundedCornerShape(18.dp)).background(AssistantBubble)
+            modifier = Modifier.clip(RoundedCornerShape(18.dp)).background(HAssistantBubble)
                 .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
-            Text("● ● ●", color = TextSecondary, fontSize = 13.sp, letterSpacing = 3.sp)
+            Text("● ● ●", color = HTextSecondary, fontSize = 13.sp, letterSpacing = 3.sp)
         }
     }
-}
-
-@Composable
-fun WelcomeDialog(displayName: String, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = SurfaceColor,
-        titleContentColor = OrangeAccent,
-        textContentColor = TextPrimary,
-        title = { Text("Welcome${if (displayName.isNotBlank()) ", $displayName" else ""}") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("I'm VERA — your personal AI assistant, always here.")
-                Spacer(Modifier.height(4.dp))
-                Text("What I can do:", color = OrangeAccent, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                listOf(
-                    "Answer questions & search the web",
-                    "Manage calendar & Gmail",
-                    "Control any media & launch apps",
-                    "Set reminders — spoken aloud",
-                    "Remember your preferences",
-                    "Understand images you share",
-                    "Proactive tips & suggestions",
-                ).forEach { Text("  • $it", fontSize = 14.sp) }
-                Spacer(Modifier.height(4.dp))
-                Text("Tap ? anytime for tips.", color = TextSecondary, fontSize = 13.sp)
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Let's go", color = OrangeAccent, fontWeight = FontWeight.Bold) }
-        }
-    )
 }

@@ -389,6 +389,143 @@ async def _evaluate_for_user(
 
 
 # ---------------------------------------------------------------------------
+# Morning brief (runs once daily at configured UTC hour)
+# ---------------------------------------------------------------------------
+
+_BRIEF_SYSTEM = (
+    "You are VERA, a personal AI assistant. "
+    "Write a warm, spoken morning brief — no markdown, no bullet points, no asterisks. "
+    "2-4 natural sentences. Conversational tone."
+)
+
+
+def _extract_location_from_memories(memories: list[str]) -> str | None:
+    """Scan memory strings for city/country clues. Returns first match or None."""
+    import re
+    patterns = [
+        r"(?:live|living|based|located|from|in)\s+(?:in\s+)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)",
+        r"(?:city|home|hometown)[:\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)",
+    ]
+    for mem in memories:
+        for pat in patterns:
+            m = re.search(pat, mem)
+            if m:
+                return m.group(1)
+    return None
+
+
+async def _run_morning_brief(connection_manager_ref) -> None:  # type: ignore[type-arg]
+    """Compose and push a personalised morning brief to each connected user."""
+    from backend.app.core.config import settings  # noqa: PLC0415
+    from backend.app.services.llm import build_llm_client  # noqa: PLC0415
+
+    active_user_ids = connection_manager_ref.active_user_ids()
+    if not active_user_ids:
+        return
+
+    try:
+        llm = build_llm_client()
+    except Exception as exc:
+        logger.warning("Morning brief: LLM unavailable — %r", exc)
+        return
+
+    db = SessionLocal()
+    try:
+        for user_id in active_user_ids:
+            try:
+                await _morning_brief_for_user(db, connection_manager_ref, llm, user_id, settings)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Morning brief error for user %s: %r", user_id, exc)
+    finally:
+        db.close()
+
+
+async def _morning_brief_for_user(db: Session, connection_manager_ref, llm, user_id: str, settings) -> None:  # type: ignore[type-arg]
+    now = datetime.now(timezone.utc)
+
+    # Daily dedup — skip if brief already sent today
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if (
+        db.query(models.AgentSuggestion)
+        .filter(
+            models.AgentSuggestion.user_id == user_id,
+            models.AgentSuggestion.type == "morning_brief_sent",
+            models.AgentSuggestion.ts >= today_start,
+        )
+        .first()
+    ):
+        return
+
+    user_settings = db.query(models.UserSettings).filter(models.UserSettings.user_id == user_id).first()
+    if _is_quiet_hours(user_settings, now):
+        return
+
+    # Load memories to personalise the brief and find location
+    memory_svc = MemoryService(user_id=user_id)
+    memories = memory_svc.retrieve(db, limit=20)
+
+    # User display name
+    user_row = db.query(models.User).filter(models.User.id == user_id).first()
+    first_name = (user_row.display_name or "").split()[0] if user_row and user_row.display_name else "there"
+    day_name = now.strftime("%A")
+
+    # Gather data concurrently — failures produce empty strings, never block
+    from backend.app.services.tools import get_weather  # noqa: PLC0415
+    from backend.app.services.calendar_tools import get_agenda  # noqa: PLC0415
+    from backend.app.services.news_tools import get_news  # noqa: PLC0415
+
+    location = _extract_location_from_memories(memories) or settings.morning_weather_location
+
+    weather_coro = get_weather(location) if location else _noop()
+    results = await asyncio.gather(weather_coro, get_agenda(1), get_news(limit=5), return_exceptions=True)
+    weather_raw, calendar_raw, news_raw = results
+
+    sections: list[str] = []
+    if isinstance(weather_raw, str) and "error" not in weather_raw.lower() and "not conf" not in weather_raw.lower():
+        sections.append(f"WEATHER:\n{weather_raw}")
+    if isinstance(calendar_raw, str) and "GoogleAuth" not in calendar_raw and "error" not in calendar_raw.lower():
+        sections.append(f"CALENDAR (today):\n{calendar_raw}")
+    if isinstance(news_raw, str) and "not configured" not in news_raw.lower() and "error" not in news_raw.lower():
+        sections.append(f"TOP NEWS:\n{news_raw}")
+
+    if not sections:
+        logger.debug("Morning brief: no data available for user %s — skipping", user_id)
+        return
+
+    data_block = "\n\n".join(sections)
+    prompt = (
+        f"It is {day_name} morning. Write a morning brief for {first_name}.\n\n"
+        f"Data:\n{data_block}\n\n"
+        "Cover: weather (if available), any events today, one notable headline. "
+        "Start with 'Good morning' and use their first name."
+    )
+
+    brief = await llm.generate(
+        messages=[{"role": "user", "content": prompt}],
+        system=_BRIEF_SYSTEM,
+    )
+    if not brief or not brief.strip():
+        return
+
+    # Mark as sent (dedup key)
+    db.add(models.AgentSuggestion(
+        user_id=user_id,
+        type="morning_brief_sent",
+        priority=9,
+        status="sent",
+        payload_json={"brief": brief[:500], "day": day_name},
+    ))
+    db.commit()
+
+    await connection_manager_ref.send(user_id, "assistant.text", {"text": brief.strip()})
+    logger.info("Morning brief delivered to user %s (%d chars)", user_id, len(brief))
+
+
+async def _noop() -> str:
+    return ""
+
+
+# ---------------------------------------------------------------------------
 # Proactive learning analytics (runs every 4 hours)
 # ---------------------------------------------------------------------------
 
@@ -543,6 +680,7 @@ class ProactiveScheduler:
     def start(self) -> None:
         """Start the background scheduler."""
         from backend.app.api.connection_manager import manager  # noqa: PLC0415
+        from backend.app.core.config import settings  # noqa: PLC0415
 
         self._scheduler.add_job(
             _evaluate_rules,
@@ -560,6 +698,24 @@ class ProactiveScheduler:
             id="learning_analytics",
             replace_existing=True,
         )
+
+        brief_hour_str = settings.morning_brief_hour.strip()
+        if brief_hour_str:
+            try:
+                brief_hour = int(brief_hour_str)
+                self._scheduler.add_job(
+                    _run_morning_brief,
+                    trigger="cron",
+                    hour=brief_hour,
+                    minute=0,
+                    args=[manager],
+                    id="morning_brief",
+                    replace_existing=True,
+                )
+                logger.info("Morning brief scheduled at %02d:00 UTC daily", brief_hour)
+            except ValueError:
+                logger.warning("Invalid MORNING_BRIEF_HOUR=%r — morning brief disabled", brief_hour_str)
+
         self._scheduler.start()
         logger.info("ProactiveScheduler started — evaluating rules every 60 s, learning analytics every 4 h")
 

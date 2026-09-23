@@ -52,5 +52,10 @@ class Settings(BaseSettings):
     # NewsAPI key (newsapi.org free tier: 100 req/day)
     news_api_key: str = ""
 
+    # Morning brief — UTC hour to fire (0-23), empty string = disabled
+    morning_brief_hour: str = "7"
+    # Fallback weather location when not found in user memories
+    morning_weather_location: str = ""
+
 
 settings = Settings()

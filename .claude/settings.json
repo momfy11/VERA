@@ -42,7 +42,12 @@
       "Bash(bash deploy_now.sh)",
       "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 -o StrictHostKeyChecking=no root@46.62.225.46 \"docker logs vera-backend-1 2>&1 | grep -iE 'openwakeword|onnx|model|embed|wake|warn|error' | tail -40\")",
       "Bash(ssh -i ~/.ssh/vera_deploy_ed25519 -o StrictHostKeyChecking=no root@46.62.225.46 \"docker logs vera-backend-1 2>&1 | grep -E 'Embedding error|enroll|503|openwakeword|ONNX' | tail -20\")",
-      "Bash(xargs grep -l \"memory\\\\|Memory\\\\|schedule\\\\|APScheduler\\\\|apscheduler\")"
+      "Bash(xargs grep -l \"memory\\\\|Memory\\\\|schedule\\\\|APScheduler\\\\|apscheduler\")",
+      "Skill(code-review)",
+      "Skill(code-review:*)",
+      "Read(//c/Users/momfy/.claude/**)",
+      "Bash(xargs grep -l \"scheduler\\\\|APScheduler\\\\|apscheduler\")",
+      "Bash(xargs grep -l \"weather\\\\|calendar\\\\|news\")"
     ]
   }
 }

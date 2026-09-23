@@ -43,8 +43,8 @@ class VeraWebSocket(private val http: OkHttpClient) {
         val req = Request.Builder().url(WS_URL).build()
         ws = http.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                // token nested in payload — required by backend
-                webSocket.send("""{"type":"client.hello","payload":{"token":"$token"}}""")
+                val tz = java.time.ZoneId.systemDefault().id
+                webSocket.send("""{"type":"client.hello","payload":{"token":"$token","tz":"$tz"}}""")
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
