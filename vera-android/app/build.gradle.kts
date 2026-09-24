@@ -60,4 +60,6 @@ dependencies {
     implementation(libs.local.broadcast.manager)
     implementation(libs.androidx.browser)
     implementation(libs.lottie.compose)
+    // 3D rendering — Filament (Google PBR renderer), GLB/glTF, morph targets for blend shapes
+    implementation(libs.sceneview)
 }

@@ -1,0 +1,47 @@
+Place vera_head.glb in this directory to activate the 3D avatar.
+
+Without this file the app falls back to the 2D Canvas avatar automatically.
+
+== Required GLB spec ==
+
+File name:     vera_head.glb
+Format:        Binary glTF 2.0 (single .glb file)
+Blend shapes:  ARKit 52 face blend shapes (EyeBlink_L, JawOpen, MouthSmileLeft, etc.)
+               See AvatarBlendShapes.kt for full list of expected names.
+               Unknown blend shape names are silently ignored — partial rigs work.
+Orientation:   Y-up, Z-forward (glTF default — do NOT change this)
+Origin:        Centre at eye level (y ≈ 0) for correct camera framing
+Geometry:      Head + neck only OR bust — full body will not frame correctly
+Materials:     PBR metallic-roughness (standard glTF — Filament renders it natively)
+
+== Recommended sources ==
+
+1. Ready Player Me (readyplayer.me)  — EASIEST
+   a. Go to readyplayer.me/avatar-creator
+   b. Choose female base, dark/futuristic style
+   c. On export: format = GLB, morph targets = "ARKit blendshapes"
+   d. Download and rename to vera_head.glb
+   e. Optional: trim to bust using Blender (delete body below shoulders)
+
+2. MetaHuman Creator (Unreal Engine)
+   a. Create at metahuman.unrealengine.com
+   b. Export as FBX from UE5 project
+   c. Import FBX in Blender → export as GLB
+   d. Ensure ARKit blend shape names are preserved
+
+3. VRoid Studio (free anime-realistic)
+   a. Download from vroid.com/en/studio
+   b. Create character, export as VRM
+   c. Open VRM in Blender (VRM Add-on: github.com/saturday06/VRM-Addon-for-Blender)
+   d. Rename VRM blend shapes to ARKit names (see AvatarBlendShapes.kt)
+   e. Export as GLB
+
+== Camera framing ==
+
+The camera is at z=0.65, y=0.08, looking at origin (0, 0.02, 0).
+For a Ready Player Me full-body model, position the camera at z=1.5, y=1.65
+OR crop the model to head+neck in Blender first.
+
+AvatarRenderer3D.kt camera constants to adjust framing:
+  position = Position(x=0f, y=0.08f, z=0.65f)
+  lookAt(Position(x=0f, y=0.02f, z=0f))

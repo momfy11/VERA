@@ -19,7 +19,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.vera.android.audio.VoiceState
-import com.vera.android.avatar.VeraAvatar
+import com.vera.android.avatar.VeraAvatar3D
 import com.vera.android.viewmodel.ActionRequest
 import com.vera.android.viewmodel.FaceState
 import com.vera.android.viewmodel.MainViewModel
@@ -84,7 +84,7 @@ fun VoiceScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(32.dp),
         ) {
-            VeraAvatar(renderState = avatarState)
+            VeraAvatar3D(renderState = avatarState)
 
             // Status / interim text
             val statusText = when (faceState) {

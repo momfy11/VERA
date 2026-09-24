@@ -15,6 +15,7 @@ googleMaterial = "1.12.0"
 localBroadcastManager = "1.1.0"
 androidxBrowser = "1.8.0"
 lottie = "6.4.0"
+sceneview = "2.2.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -38,6 +39,7 @@ google-material = { group = "com.google.android.material", name = "material", ve
 local-broadcast-manager = { group = "androidx.localbroadcastmanager", name = "localbroadcastmanager", version.ref = "localBroadcastManager" }
 androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "androidxBrowser" }
 lottie-compose = { group = "com.airbnb.android", name = "lottie-compose", version.ref = "lottie" }
+sceneview = { group = "io.github.sceneview", name = "sceneview", version.ref = "sceneview" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
