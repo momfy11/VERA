@@ -27,18 +27,18 @@ import io.github.sceneview.rememberModelLoader
  *
  * ── Expected GLB spec ────────────────────────────────────────────────────────
  * Format:      binary glTF 2.0 (.glb)
- * Blend shapes: ARKit 52 (EyeBlink_L, JawOpen, MouthSmileLeft…) — see AvatarBlendShapes.kt
+ * Blend shapes: ARKit 52 — EyeBlink_L/R, JawOpen, MouthSmile/Frown L/R, etc.
  * Orientation: Y-up, Z-forward (glTF default)
  * Origin:      centred at eye level (y ≈ 0)
- * Geometry:    head + neck, or bust. Full-body needs camera y/z adjustment.
  *
- * ── Fastest model source ─────────────────────────────────────────────────────
- * readyplayer.me → female → Export GLB → ARKit blend shapes → save as vera_head.glb
- * See assets/vera/PLACE_MODEL_HERE.txt for full instructions.
+ * ── SceneView 2.2.1 API notes (do not change without re-verifying) ────────────
+ * ModelNode(modelInstance: FilamentInstance, autoAnimate, scaleToUnits, centerOrigin)
+ *   — NO engine param; engine is derived from the FilamentInstance.
+ * ModelLoader.loadModelInstanceAsync(path) { filamentInstance -> ... }
+ *   — second param (resourceResolver) is optional with default; trailing lambda = onLoaded.
  *
  * ── iOS port ─────────────────────────────────────────────────────────────────
  * Same GLB + RealityKit ModelEntity + MorpherComponent.
- * AvatarAnimationDriver Rotation = simd_float3 euler (degrees).
  */
 @Composable
 fun VeraAvatar3D(
@@ -47,7 +47,6 @@ fun VeraAvatar3D(
 ) {
     val context = LocalContext.current
 
-    // Check once — fall back to 2D while GLB is absent
     val has3dModel = remember {
         runCatching { context.assets.open("vera/vera_head.glb").close() }.isSuccess
     }
@@ -60,12 +59,10 @@ fun VeraAvatar3D(
     val modelLoader    = rememberModelLoader(engine)
     val materialLoader = rememberMaterialLoader(engine)
 
-    // Directional key light — intensity only; no position for directional lights
     val mainLightNode = rememberMainLightNode(engine) {
         intensity = 120_000f
     }
 
-    // Camera at z=0.65 looks toward –Z by default → points at head at origin
     val cameraNode = rememberCameraNode(engine) {
         position = Position(x = 0f, y = 0.08f, z = 0.65f)
     }
@@ -73,23 +70,24 @@ fun VeraAvatar3D(
     val driver = remember { AvatarAnimationDriver() }
     SideEffect { driver.latestState = renderState }
 
-    // Node is null until GLB finishes loading
     var headNode by remember { mutableStateOf<ModelNode?>(null) }
-    // SnapshotStateList<Node> — Compose observes additions and triggers recompose
     val childNodes = remember { mutableStateListOf<Node>() }
 
-    // SceneView 2.2.1: load via ModelLoader, then construct ModelNode with returned instance
     LaunchedEffect(Unit) {
-        modelLoader.loadModelGlbAsync("vera/vera_head.glb") { instance ->
-            if (instance != null) {
-                ModelNode(
-                    engine        = engine,
-                    modelInstance = instance,
-                    scaleToUnits  = 0.38f,
-                ).also { node ->
-                    headNode = node
-                    childNodes += node
-                }
+        // loadModelInstanceAsync: (String, resourceResolver?, (FilamentInstance)->Unit) -> Job
+        // resourceResolver has a default; trailing lambda = onLoaded callback.
+        // Callback delivers ModelInstance? (nullable platform type from Java generics).
+        modelLoader.loadModelInstanceAsync("vera/vera_head.glb") { instance ->
+            if (instance == null) return@loadModelInstanceAsync
+            // ModelNode takes ModelInstance (non-null) — smart cast applies after null check.
+            // No engine param: engine is derived from the ModelInstance internally.
+            ModelNode(
+                modelInstance = instance,
+                autoAnimate   = false,
+                scaleToUnits  = 0.38f,
+            ).also { node ->
+                headNode = node
+                childNodes += node
             }
         }
     }

@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -29,6 +30,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import kotlin.math.sqrt
 
 class VeraForegroundService : Service() {
 
@@ -38,6 +40,7 @@ class VeraForegroundService : Service() {
         private const val WAKE_NOTIF_ID = 1002
         private const val WS_WAKE_URL = "wss://vera-app.hopto.org/ws/wake"
         private const val SAMPLE_RATE = 16000
+        private const val RMS_GATE_THRESHOLD = 600f   // tune up to reduce sensitivity, down for quieter rooms
         const val ACTION_PAUSE_WAKE = "pause_wake"
         const val ACTION_RESUME_WAKE = "resume_wake"
         const val EXTRA_WAKE_TRIGGERED = "wake_triggered"
@@ -128,8 +131,10 @@ class VeraForegroundService : Service() {
             val bufSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
                 .coerceAtLeast(4096)
 
+            // VOICE_COMMUNICATION enables hardware AEC + NS on most devices.
+            // Better than MIC for assistant use: hardware already filters speaker echo.
             val ar = AudioRecord(
-                MediaRecorder.AudioSource.MIC,
+                MediaRecorder.AudioSource.VOICE_COMMUNICATION,
                 SAMPLE_RATE,
                 AudioFormat.CHANNEL_IN_MONO,
                 AudioFormat.ENCODING_PCM_16BIT,
@@ -143,21 +148,43 @@ class VeraForegroundService : Service() {
             }
 
             ar.startRecording()
+
+            // Software AEC as second line of defence — hardware AEC may not be present on all devices.
+            val aec: AcousticEchoCanceler? = VoiceActivationManager.attachAec(ar.audioSessionId)
+
             val buf = ByteArray(bufSize)
 
             while (isActive && streaming) {
                 val read = ar.read(buf, 0, buf.size)
-                if (read > 0) {
-                    val sent = webSocket.send(ByteString.of(*buf.copyOf(read)))
-                    if (!sent) break
-                }
+                if (read <= 0) continue
+
+                // RMS energy gate: skip silent / near-silent frames (ambient noise floor).
+                // Prevents wake-word server receiving constant low-level noise.
+                // 600 ≈ 1.8% of PCM 16-bit max (32768) — below normal breath/speech.
+                if (pcmRms(buf, read) < RMS_GATE_THRESHOLD) continue
+
+                val sent = webSocket.send(ByteString.of(*buf.copyOf(read)))
+                if (!sent) break
             }
 
+            aec?.runCatching { enabled = false; release() }
             ar.stop()
             ar.release()
             audioRecord = null
             _micReleased.tryEmit(Unit)
         }
+    }
+
+    /** Computes RMS of a PCM-16LE byte buffer. Returns 0..32768. */
+    private fun pcmRms(pcm: ByteArray, length: Int): Float {
+        var sum = 0.0
+        var i = 0
+        while (i + 1 < length) {
+            val sample = ((pcm[i].toInt() and 0xFF) or (pcm[i + 1].toInt() shl 8)).toShort().toFloat()
+            sum += sample * sample
+            i += 2
+        }
+        return sqrt(sum / (length / 2)).toFloat()
     }
 
     private fun onWakeWordDetected() {

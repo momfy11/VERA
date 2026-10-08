@@ -9,6 +9,7 @@ import androidx.core.app.NotificationCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.vera.android.audio.TtsManager
+import com.vera.android.audio.VoiceActivationManager
 import com.vera.android.audio.VoiceSession
 import com.vera.android.audio.VoiceState
 import com.vera.android.audio.VeraForegroundService
@@ -76,17 +77,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ── Avatar system ─────────────────────────────────────────────────────────
     private val animController = AvatarAnimationController()
     private val lipSync = AvatarLipSyncController()
+    private val voiceActivation = VoiceActivationManager(app)
 
     private val _expression = MutableStateFlow(AvatarExpression.NEUTRAL)
 
-    // Intermediate: bundle the 4 continuous animation ticks into one typed flow
-    private data class AnimTick(val breath: Float, val blink: Float, val gazeX: Float, val pulse: Float)
+    // Intermediate: bundle the 5 continuous animation ticks into one typed flow
+    private data class AnimTick(val breath: Float, val blink: Float, val gazeX: Float, val gazeY: Float, val pulse: Float)
     private val _animTick = combine(
         animController.breathAmount,
         animController.blinkAmount,
         animController.eyeGazeX,
+        animController.eyeGazeY,
         animController.circuitPulse,
-    ) { breath, blink, gazeX, pulse -> AnimTick(breath, blink, gazeX, pulse) }
+    ) { breath, blink, gazeX, gazeY, pulse -> AnimTick(breath, blink, gazeX, gazeY, pulse) }
 
     /** Single render state consumed by [VeraAvatar]. Combine at most 3 flows here. */
     val avatarState: StateFlow<AvatarRenderState> = combine(
@@ -100,7 +103,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             blinkAmount  = anim.blink,
             breathAmount = anim.breath,
             eyeGazeX     = anim.gazeX,
-            eyeGazeY     = 0f,
+            eyeGazeY     = anim.gazeY,
             circuitPulse = anim.pulse,
         )
     }.stateIn(viewModelScope, SharingStarted.Eagerly, AvatarRenderState())
@@ -130,12 +133,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         tts.init {}
         tts.onDone = {}
         animController.start(viewModelScope)
-        // Start/stop Visualizer in sync with TTS speaking state
+        // Lip-sync: start/stop in sync with TTS. Passes scope for synthetic fallback coroutine.
         viewModelScope.launch {
             tts.isSpeaking.collect { speaking ->
-                if (speaking) lipSync.start() else lipSync.stop()
+                if (speaking) lipSync.start(viewModelScope) else lipSync.stop()
             }
         }
+        // Echo/barge-in prevention: mute wake-word mic while TTS speaks.
+        voiceActivation.observeTts(viewModelScope, tts.isSpeaking, voiceSession.state)
         collectWsMessages()
         val token = prefs.sessionToken
         if (token != null) {

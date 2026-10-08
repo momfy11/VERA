@@ -1,5 +1,6 @@
 package com.vera.android.avatar
 
+import android.util.Log
 import com.google.android.filament.Engine
 import com.google.android.filament.gltfio.FilamentAsset
 import io.github.sceneview.math.Rotation
@@ -147,14 +148,21 @@ class AvatarAnimationDriver {
             val count = rm.getMorphTargetCount(ri)
             if (count == 0) continue
 
-            // getMorphTargetNames returns Array<String> — one entry per morph target
             val names = runCatching { asset.getMorphTargetNames(entity) }.getOrElse { emptyArray() }
             if (names.isEmpty()) continue
 
-            val map = HashMap<String, Int>(names.size)
-            names.forEachIndexed { i, name -> map[name] = i }
+            Log.d("AvatarDriver", "GLB entity $entity has ${names.size} morph targets: ${names.take(10).toList()}")
+
+            // Store both original case and lowercase → case-insensitive lookup without runtime cost.
+            // RPM exports "eyeBlinkLeft"; some tools export "EyeBlink_L" — both resolve correctly.
+            val map = HashMap<String, Int>(names.size * 2)
+            names.forEachIndexed { i, name ->
+                map[name] = i
+                map[name.lowercase()] = i
+            }
             entityMorphMaps[entity] = map
         }
+        Log.d("AvatarDriver", "Cache built: ${entityMorphMaps.size} entities with morph targets")
         cacheReady = true
     }
 }

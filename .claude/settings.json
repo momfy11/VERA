@@ -47,7 +47,13 @@
       "Skill(code-review:*)",
       "Read(//c/Users/momfy/.claude/**)",
       "Bash(xargs grep -l \"scheduler\\\\|APScheduler\\\\|apscheduler\")",
-      "Bash(xargs grep -l \"weather\\\\|calendar\\\\|news\")"
+      "Bash(xargs grep -l \"weather\\\\|calendar\\\\|news\")",
+      "Bash(find /c/Users/momfy/.gradle/caches -name \"*.jar\" 2>/dev/null | grep -i sceneview | head -20)",
+      "Read(//c/Users/momfy/.gradle/caches/**)",
+      "Bash(jar tf *)",
+      "Bash(find \"/c/Users/momfy/.gradle/caches/8.13/transforms/7f2ba440813b441bddd793591ca0fcb3/transformed/sceneview-2.2.1/\" -type f | head -30)",
+      "Read(//c/Users/momfy/.gradle/caches/8.13/transforms/7f2ba440813b441bddd793591ca0fcb3/transformed/sceneview-2.2.1//**)",
+      "Read(//c/Users/momfy/.claude/projects/c--Users-momfy-repos-VERA/memory/**)"
     ]
   }
 }

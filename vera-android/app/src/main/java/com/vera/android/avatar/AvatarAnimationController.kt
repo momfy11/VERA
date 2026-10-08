@@ -55,24 +55,25 @@ class AvatarAnimationController {
         }
     }
 
-    // Natural blink: random interval 3–6 s; occasional double-blink.
+    // Natural blink: 2.5–5 s random interval; 20% double-blink.
     private suspend fun animateBlink() {
         while (true) {
-            delay(Random.nextLong(3_000, 6_000))
+            delay(Random.nextLong(2_500, 5_000))
             closeLid()
-            if (Random.nextFloat() < 0.25f) { // 25% chance double-blink
-                delay(Random.nextLong(150, 300))
+            if (Random.nextFloat() < 0.20f) {
+                delay(Random.nextLong(120, 220))
                 closeLid()
             }
         }
     }
 
     private suspend fun closeLid() {
-        // Fast close (~80ms), slightly slower open (~120ms)
-        for (step in 0..4) { _blinkAmount.value = step / 4f; delay(16) }
+        // Close over ~64ms (4 × 16ms), hold 22ms, open over ~96ms (6 × 16ms) = ~182ms total.
+        // Matches natural blink physiology — close faster than open.
+        for (step in 1..4) { _blinkAmount.value = step / 4f; delay(16) }
         _blinkAmount.value = 1f
-        delay(80)
-        for (step in 4 downTo 0) { _blinkAmount.value = step / 4f; delay(20) }
+        delay(22)
+        for (step in 5 downTo 0) { _blinkAmount.value = step / 6f; delay(16) }
         _blinkAmount.value = 0f
     }
 
