@@ -53,7 +53,14 @@
       "Bash(jar tf *)",
       "Bash(find \"/c/Users/momfy/.gradle/caches/8.13/transforms/7f2ba440813b441bddd793591ca0fcb3/transformed/sceneview-2.2.1/\" -type f | head -30)",
       "Read(//c/Users/momfy/.gradle/caches/8.13/transforms/7f2ba440813b441bddd793591ca0fcb3/transformed/sceneview-2.2.1//**)",
-      "Read(//c/Users/momfy/.claude/projects/c--Users-momfy-repos-VERA/memory/**)"
+      "Read(//c/Users/momfy/.claude/projects/c--Users-momfy-repos-VERA/memory/**)",
+      "Bash(find ~/.gradle/caches -path \"*/sceneview*\" -name \"*.pom\" 2>/dev/null | head -20)",
+      "Bash(find ~/.gradle/caches -path \"*/filament*\" -name \"*.pom\" 2>/dev/null | head -20)",
+      "Bash(cat /c/Users/momfy/.gradle/caches/modules-2/files-2.1/io.github.sceneview/sceneview/2.2.1/487364e6081e49b667e4fd48ed7e8bb941380162/sceneview-2.2.1.pom | grep -A3 \"filament\")",
+      "Read(//c/Users/momfy/.gradle/caches/modules-2/files-2.1/io.github.sceneview/sceneview/2.2.1/487364e6081e49b667e4fd48ed7e8bb941380162/**)",
+      "Bash(find ~/.gradle/caches -path \"*/filament-android/1.52.0*\" -name \"*.aar\" 2>/dev/null)",
+      "Bash(find ~/.gradle/caches -path \"*/filament*1.52*\" -name \"*.aar\" 2>/dev/null)",
+      "Bash(python3 -)"
     ]
   }
 }

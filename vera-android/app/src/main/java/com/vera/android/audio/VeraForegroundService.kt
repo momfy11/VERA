@@ -11,6 +11,7 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
+import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -40,7 +41,10 @@ class VeraForegroundService : Service() {
         private const val WAKE_NOTIF_ID = 1002
         private const val WS_WAKE_URL = "wss://vera-app.hopto.org/ws/wake"
         private const val SAMPLE_RATE = 16000
-        private const val RMS_GATE_THRESHOLD = 600f   // tune up to reduce sensitivity, down for quieter rooms
+        private const val RMS_GATE_THRESHOLD = 600f          // screen-on threshold
+        private const val RMS_GATE_SCREEN_OFF = 1800f        // screen-off: ignore quiet ambient noise
+        private const val LISTEN_WINDOW_MS = 1500L           // listen burst when screen off
+        private const val SCREEN_OFF_PAUSE_MS = 2500L        // discard window between bursts (37% duty cycle)
         const val ACTION_PAUSE_WAKE = "pause_wake"
         const val ACTION_RESUME_WAKE = "resume_wake"
         const val EXTRA_WAKE_TRIGGERED = "wake_triggered"
@@ -131,8 +135,16 @@ class VeraForegroundService : Service() {
             val bufSize = AudioRecord.getMinBufferSize(SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
                 .coerceAtLeast(4096)
 
-            // VOICE_COMMUNICATION enables hardware AEC + NS on most devices.
-            // Better than MIC for assistant use: hardware already filters speaker echo.
+            // ms of audio per read at 16kHz 16-bit mono (32000 bytes/s).
+            // bufSize 3200 → 100ms, 6400 → 200ms. Used to compute duty-cycle frame counts.
+            val msPerBuf = bufSize * 1000L / (SAMPLE_RATE * 2)
+            val listenFrames = (LISTEN_WINDOW_MS / msPerBuf).toInt().coerceAtLeast(1)
+            val pauseFrames  = (SCREEN_OFF_PAUSE_MS / msPerBuf).toInt().coerceAtLeast(1)
+            val cycleLen = listenFrames + pauseFrames
+
+            val pm = getSystemService(PowerManager::class.java)
+            val bm = getSystemService(BatteryManager::class.java)
+
             val ar = AudioRecord(
                 MediaRecorder.AudioSource.VOICE_COMMUNICATION,
                 SAMPLE_RATE,
@@ -148,23 +160,28 @@ class VeraForegroundService : Service() {
             }
 
             ar.startRecording()
-
-            // Software AEC as second line of defence — hardware AEC may not be present on all devices.
             val aec: AcousticEchoCanceler? = VoiceActivationManager.attachAec(ar.audioSessionId)
-
             val buf = ByteArray(bufSize)
+            var frameIndex = 0
 
             while (isActive && streaming) {
                 val read = ar.read(buf, 0, buf.size)
                 if (read <= 0) continue
+                frameIndex++
 
-                // RMS energy gate: skip silent / near-silent frames (ambient noise floor).
-                // Prevents wake-word server receiving constant low-level noise.
-                // 600 ≈ 1.8% of PCM 16-bit max (32768) — below normal breath/speech.
-                if (pcmRms(buf, read) < RMS_GATE_THRESHOLD) continue
+                val screenOff = !pm.isInteractive
+                val charging  = bm.isCharging
 
-                val sent = webSocket.send(ByteString.of(*buf.copyOf(read)))
-                if (!sent) break
+                // Duty cycle when screen is off and not charging.
+                // Frame position within cycle: [0, listenFrames) → send; [listenFrames, cycleLen) → discard.
+                // Saves ~63% of radio wake time. AudioRecord keeps draining its own buffer during
+                // discard frames (hardware DMA — CPU stays low, we just don't transmit).
+                if (screenOff && !charging && frameIndex % cycleLen >= listenFrames) continue
+
+                val threshold = if (screenOff && !charging) RMS_GATE_SCREEN_OFF else RMS_GATE_THRESHOLD
+                if (pcmRms(buf, read) < threshold) continue
+
+                if (!webSocket.send(ByteString.of(*buf.copyOf(read)))) break
             }
 
             aec?.runCatching { enabled = false; release() }

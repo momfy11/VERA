@@ -1,6 +1,12 @@
 [versions]
 agp = "8.11.2"
-kotlin = "2.0.0"
+kotlin = "2.2.21"
+junit = "4.13.2"
+mockk = "1.13.12"
+coroutinesTest = "1.8.1"
+composeUiTest = "1.7.8"
+espresso = "3.6.1"
+androidxTestExt = "1.2.1"
 coreKtx = "1.13.1"
 lifecycle = "2.8.3"
 activityCompose = "1.9.0"
@@ -15,7 +21,7 @@ googleMaterial = "1.12.0"
 localBroadcastManager = "1.1.0"
 androidxBrowser = "1.8.0"
 lottie = "6.4.0"
-sceneview = "2.2.1"
+sceneview = "2.3.4"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -40,6 +46,14 @@ local-broadcast-manager = { group = "androidx.localbroadcastmanager", name = "lo
 androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "androidxBrowser" }
 lottie-compose = { group = "com.airbnb.android", name = "lottie-compose", version.ref = "lottie" }
 sceneview = { group = "io.github.sceneview", name = "sceneview", version.ref = "sceneview" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
+mockk-android = { group = "io.mockk", name = "mockk-android", version.ref = "mockk" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
+androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4", version.ref = "composeUiTest" }
+androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest", version.ref = "composeUiTest" }
+androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExt" }
+androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

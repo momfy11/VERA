@@ -6,7 +6,6 @@ import android.media.audiofx.AcousticEchoCanceler
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
@@ -38,7 +37,7 @@ class VoiceActivationManager(private val context: Context) {
         voiceState: StateFlow<VoiceState>,
     ) {
         scope.launch {
-            isSpeaking.distinctUntilChanged().collect { speaking ->
+            isSpeaking.collect { speaking ->
                 if (speaking) {
                     // TTS started — silence the wake-word mic to prevent echo barge-in
                     sendServiceAction(VeraForegroundService.ACTION_PAUSE_WAKE)
