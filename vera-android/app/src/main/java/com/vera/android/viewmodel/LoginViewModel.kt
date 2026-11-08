@@ -39,6 +39,7 @@ class LoginViewModel(app: Application) : AndroidViewModel(app) {
                 .onSuccess { resp ->
                     prefs.sessionToken = resp.session_token
                     prefs.displayName = name
+                    prefs.email = email
                     _ui.value = _ui.value.copy(loading = false, success = true)
                 }
                 .onFailure { e ->

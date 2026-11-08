@@ -15,6 +15,7 @@ import com.vera.android.audio.VeraForegroundService
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -126,6 +127,13 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("main") {
                         val vm: MainViewModel = viewModel()
+                        val uiState = vm.ui.collectAsState().value
+                        if (uiState.needsReLogin) {
+                            androidx.compose.runtime.LaunchedEffect(Unit) {
+                                prefs.clear()
+                                navController.navigate("login") { popUpTo(0) { inclusive = true } }
+                            }
+                        }
                         VoiceScreen(
                             vm = vm,
                             onOpenHistory = { navController.navigate("history") },

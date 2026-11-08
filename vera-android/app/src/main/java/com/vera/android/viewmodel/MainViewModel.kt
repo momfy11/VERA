@@ -50,6 +50,7 @@ data class MainUiState(
     val pendingAction: ActionRequest? = null,
     val firstLogin: Boolean = false,
     val error: String? = null,
+    val needsReLogin: Boolean = false,
 )
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -218,6 +219,37 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    private fun attemptAutoReLogin() {
+        val email = prefs.email
+        val name = prefs.displayName ?: "user"
+        if (email == null) {
+            prefs.sessionToken = null
+            _ui.update { it.copy(
+                isConnected = false, isTyping = false,
+                error = "Session expired — please log in again",
+                needsReLogin = true,
+            ) }
+            return
+        }
+        _ui.update { it.copy(error = "Session expired — reconnecting…", isTyping = false) }
+        viewModelScope.launch {
+            runCatching { api.login(email, name) }
+                .onSuccess { resp ->
+                    prefs.sessionToken = resp.session_token
+                    _ui.update { it.copy(error = null) }
+                    ws.connect(resp.session_token)
+                }
+                .onFailure {
+                    prefs.sessionToken = null
+                    _ui.update { it.copy(
+                        isConnected = false,
+                        error = "Session expired — please log in again",
+                        needsReLogin = true,
+                    ) }
+                }
+        }
+    }
+
     private fun startForegroundService(app: Application) {
         runCatching {
             app.startForegroundService(Intent(app, VeraForegroundService::class.java))
@@ -252,6 +284,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     is ServerMessage.MediaControl -> mediaController.execute(msg.action)
                     is ServerMessage.LaunchApp -> appLauncher.launchApp(msg.uri)
                     is ServerMessage.ProactiveQuestion -> showProactiveNotification(msg)
+                    is ServerMessage.AuthError -> {
+                        typingTimeoutJob?.cancel()
+                        ws.disconnect()
+                        attemptAutoReLogin()
+                    }
                     is ServerMessage.Error -> {
                         typingTimeoutJob?.cancel()
                         _ui.update { it.copy(error = msg.message, isTyping = false) }

@@ -1,13 +1,19 @@
 package com.vera.android.data.ws
 
+import android.util.Log
+import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.serialization.json.*
 import okhttp3.*
 import okio.ByteString
 
 private const val WS_URL = "wss://vera-app.hopto.org/ws"
+private const val TAG = "VeraWebSocket"
 
 sealed class ServerMessage {
     data class Hello(val displayName: String, val firstLogin: Boolean) : ServerMessage()
@@ -28,6 +34,7 @@ sealed class ServerMessage {
         val noLabel: String,
     ) : ServerMessage()
     data class Error(val message: String) : ServerMessage()
+    data class AuthError(val message: String) : ServerMessage()
 }
 
 class VeraWebSocket(private val http: OkHttpClient) {
@@ -35,14 +42,34 @@ class VeraWebSocket(private val http: OkHttpClient) {
     private val _messages = Channel<ServerMessage>(Channel.UNLIMITED)
     val messages: Flow<ServerMessage> = _messages.receiveAsFlow()
 
+    private val _connected = MutableStateFlow(false)
+    val connected: StateFlow<Boolean> = _connected.asStateFlow()
+
     private var ws: WebSocket? = null
+    private var currentToken: String? = null
+    private var reconnectJob: Job? = null
+    private var retryCount = 0
+    private var intentionalClose = false
     private val json = Json { ignoreUnknownKeys = true }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun connect(token: String) {
+        intentionalClose = false
+        currentToken = token
+        retryCount = 0
+        reconnectJob?.cancel()
+        doConnect(token)
+    }
+
+    private fun doConnect(token: String) {
         ws?.close(1000, "reconnect")
+        ws = null
+        _connected.value = false
+
         val req = Request.Builder().url(WS_URL).build()
         ws = http.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                Log.d(TAG, "WS opened, sending hello")
                 val tz = java.time.ZoneId.systemDefault().id
                 webSocket.send("""{"type":"client.hello","payload":{"token":"$token","tz":"$tz"}}""")
             }
@@ -51,14 +78,18 @@ class VeraWebSocket(private val http: OkHttpClient) {
                 runCatching {
                     val obj = json.parseToJsonElement(text).jsonObject
                     val type = obj["type"]?.jsonPrimitive?.content ?: return
-                    // All server messages use {"type":"...","payload":{...}}
                     val p = obj["payload"]?.jsonObject ?: buildJsonObject {}
 
                     val msg: ServerMessage? = when (type) {
-                        "server.hello" -> ServerMessage.Hello(
-                            displayName = p["display_name"]?.jsonPrimitive?.content ?: "",
-                            firstLogin = p["first_login"]?.jsonPrimitive?.boolean ?: false,
-                        )
+                        "server.hello" -> {
+                            _connected.value = true
+                            retryCount = 0
+                            Log.d(TAG, "Connected, hello received")
+                            ServerMessage.Hello(
+                                displayName = p["display_name"]?.jsonPrimitive?.content ?: "",
+                                firstLogin = p["first_login"]?.jsonPrimitive?.boolean ?: false,
+                            )
+                        }
                         "assistant.text" -> ServerMessage.AssistantText(p["text"]?.jsonPrimitive?.content ?: "")
                         "assistant.thinking" -> ServerMessage.AssistantThinking(p["text"]?.jsonPrimitive?.content ?: "")
                         "assistant.tts_cancel" -> ServerMessage.TtsCancel
@@ -84,9 +115,19 @@ class VeraWebSocket(private val http: OkHttpClient) {
                             yesLabel = p["action_yes_label"]?.jsonPrimitive?.content ?: "Yes",
                             noLabel = p["action_no_label"]?.jsonPrimitive?.content ?: "No",
                         )
-                        "server.error", "error" -> ServerMessage.Error(
-                            p["message"]?.jsonPrimitive?.content ?: obj["message"]?.jsonPrimitive?.content ?: "error"
-                        )
+                        "server.error", "error" -> {
+                            val errMsg = p["message"]?.jsonPrimitive?.content
+                                ?: obj["message"]?.jsonPrimitive?.content ?: "error"
+                            if (errMsg.contains("unauthorized", ignoreCase = true)
+                                || errMsg.contains("invalid token", ignoreCase = true)
+                                || errMsg.contains("expired", ignoreCase = true)
+                            ) {
+                                Log.w(TAG, "Auth error: $errMsg")
+                                ServerMessage.AuthError(errMsg)
+                            } else {
+                                ServerMessage.Error(errMsg)
+                            }
+                        }
                         else -> null
                     }
                     msg?.let { _messages.trySend(it) }
@@ -94,13 +135,35 @@ class VeraWebSocket(private val http: OkHttpClient) {
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                if (reason.isNotBlank()) _messages.trySend(ServerMessage.Error("Disconnected: $reason"))
+                Log.d(TAG, "WS closed: $code $reason")
+                _connected.value = false
+                if (!intentionalClose) scheduleReconnect()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                _messages.trySend(ServerMessage.Error("Connection error: ${t.message}"))
+                Log.w(TAG, "WS failure: ${t.message}")
+                _connected.value = false
+                _messages.trySend(ServerMessage.Error("Connection lost — reconnecting…"))
+                if (!intentionalClose) scheduleReconnect()
             }
         })
+    }
+
+    private fun scheduleReconnect() {
+        val token = currentToken ?: return
+        reconnectJob?.cancel()
+        reconnectJob = scope.launch {
+            val delaySec = when {
+                retryCount < 3 -> 2L
+                retryCount < 6 -> 5L
+                retryCount < 10 -> 15L
+                else -> 30L
+            }
+            Log.d(TAG, "Reconnecting in ${delaySec}s (attempt ${retryCount + 1})")
+            delay(delaySec * 1000)
+            retryCount++
+            doConnect(token)
+        }
     }
 
     fun sendMessage(text: String, imageBase64: String? = null, imageMime: String? = null) {
@@ -130,7 +193,10 @@ class VeraWebSocket(private val http: OkHttpClient) {
     fun sendAudioChunk(pcm: ByteArray) = ws?.send(ByteString.of(*pcm))
 
     fun disconnect() {
+        intentionalClose = true
+        reconnectJob?.cancel()
         ws?.close(1000, "logout")
         ws = null
+        _connected.value = false
     }
 }

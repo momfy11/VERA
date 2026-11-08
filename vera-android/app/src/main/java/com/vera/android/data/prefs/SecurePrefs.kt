@@ -21,6 +21,10 @@ class SecurePrefs(context: Context) {
         get() = prefs.getString(KEY_NAME, null)
         set(v) = prefs.edit().putString(KEY_NAME, v).apply()
 
+    var email: String?
+        get() = prefs.getString(KEY_EMAIL, null)
+        set(v) = prefs.edit().putString(KEY_EMAIL, v).apply()
+
     var ttsEnabled: Boolean
         get() = prefs.getBoolean(KEY_TTS, true)
         set(v) = prefs.edit().putBoolean(KEY_TTS, v).apply()
@@ -38,6 +42,7 @@ class SecurePrefs(context: Context) {
     companion object {
         private const val KEY_TOKEN = "session_token"
         private const val KEY_NAME = "display_name"
+        private const val KEY_EMAIL = "email"
         private const val KEY_TTS = "tts_enabled"
         private const val KEY_TTS_RATE = "tts_rate"
         private const val KEY_ONBOARDING = "onboarding_done"
